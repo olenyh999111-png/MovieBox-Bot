@@ -120,9 +120,15 @@ return `
       <h3>${escapeHTML(movie.title || "Без названия")}</h3>
       <div class="meta">${escapeHTML(String(movie.year || "Год неизвестен"))}</div>
      
-<a href="https://www.themoviedb.org/movie/${movie.id}/watch" target="_blank" rel="noopener noreferrer">
-  Где посмотреть фильм
+
+<a
+  href="https://kinogo.ec/?do=search&subaction=search&story=${encodeURIComponent(movie.title || '')}"
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  Найти фильм на Kinogo
 </a>
+
 
     </div>
   </article>
