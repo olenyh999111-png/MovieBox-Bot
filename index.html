@@ -80,32 +80,62 @@ const catalog = [
  {title:"Пираты Карибского моря",year:2003,genre:"Приключения",emoji:"🏴‍☠️"}
 ];
 
-function renderMovies(){
- const q=document.getElementById("query").value.trim().toLowerCase();
- const list=catalog.filter(m=>
-  (m.title+" "+m.year+" "+m.genre).toLowerCase().includes(q)
- );
- document.getElementById("sectionTitle").textContent=
-  q?"Результаты поиска":"Популярная подборка";
 
- const container=document.getElementById("movies");
- container.innerHTML="";
+async function renderMovies() {
+  const query = document.getElementById("query").value.trim();
+  const container = document.getElementById("movies");
+  const title = document.getElementById("sectionTitle");
 
- if(!list.length){
-  container.innerHTML='<div class="empty">В демо-каталоге ничего не найдено. Попробуй другое название или открой бота.</div>';
-  return;
- }
+  title.textContent = query ? "Результаты поиска" : "Популярные фильмы";
+  container.innerHTML = '<div class="empty">Загрузка фильмов...</div>';
 
- list.forEach(m=>{
-  const card=document.createElement("article");
-  card.className="movie";
-  card.innerHTML=`<div class="poster" aria-hidden="true">${m.emoji}</div><div class="movie-info"><h3></h3><div class="meta"></div><button>Подробнее</button></div>`;
-  card.querySelector("h3").textContent=m.title;
-  card.querySelector(".meta").textContent=m.year+" · "+m.genre;
-  card.querySelector("button").onclick=()=>showDetails(m);
-  container.appendChild(card);
- });
+  try {
+    const params = new URLSearchParams({ language: "ru-RU" });
+    if (query) params.set("q", query);
+
+    const response = await fetch(`/api/search?${params}`);
+    if (!response.ok) throw new Error("Ошибка API: " + response.status);
+
+    const data = await response.json();
+    const movies = data.results || [];
+
+    if (!movies.length) {
+      container.innerHTML = '<div class="empty">Ничего не найдено.</div>';
+      return;
+    }
+
+    container.innerHTML = movies.map(movie => {
+      const poster = movie.poster
+        ? `<img class="poster" src="${movie.poster}" alt="" loading="lazy">`
+        : '<div class="poster">Постер отсутствует</div>';
+
+      return `
+        <article class="movie">
+          ${poster}
+          <div class="movie-info">
+            <h3>${escapeHTML(movie.title || "Без названия")}</h3>
+            <div class="meta">${escapeHTML(String(movie.year || "Год неизвестен"))}</div>
+          </div>
+        </article>
+      `;
+    }).join("");
+  } catch (error) {
+    console.error(error);
+    container.innerHTML =
+      '<div class="empty">Ошибка загрузки. Попробуй ещё раз.</div>';
+  }
 }
+
+function escapeHTML(value) {
+  return String(value).replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[char]);
+}
+
 
 function showDetails(m){
  const message=m.title+" ("+m.year+") — "+m.genre+". Открой Telegram-бота для дальнейшего поиска.";
