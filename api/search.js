@@ -48,11 +48,16 @@ if (query) {
 
     const response = await fetch(url);
 
-    if (!response.ok) {
-      return res.status(502).json({
-        error: "Не удалось получить фильмы из TMDB"
-      });
-    }
+   
+if (!response.ok) {
+  const details = await response.text();
+
+  return res.status(502).json({
+    error: "Не удалось получить фильмы из TMDB",
+    details: details
+  });
+}
+
 
     const data = await response.json();
 
