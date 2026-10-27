@@ -126,11 +126,15 @@ return `
 
 
     }).join("");
-  } catch (error) {
-    console.error(error);
-    container.innerHTML =
-      '<div class="empty">Ошибка загрузки. Попробуй ещё раз.</div>';
-  }
+
+} catch (error) {
+  console.error("Ошибка поиска:", error);
+  container.innerHTML =
+    '<div class="empty">Ошибка загрузки: ' +
+    escapeHTML(error.message || String(error)) +
+    '</div>';
+}
+
 }
 
 function escapeHTML(value) {
