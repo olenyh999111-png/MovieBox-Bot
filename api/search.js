@@ -12,11 +12,7 @@ export default async function handler(req, res) {
     ? "uk-UA"
     : "ru-RU";
 
-  if (!query) {
-    return res.status(400).json({
-      error: "Введите название фильма"
-    });
-  }
+  
 
   if (query.length > 100) {
     return res.status(400).json({
@@ -33,15 +29,22 @@ export default async function handler(req, res) {
   }
 
   try {
-    const url = new URL(
-      "https://api.themoviedb.org/3/search/movie"
-    );
+   
+const url = new URL(
+  query
+    ? "https://api.themoviedb.org/3/search/movie"
+    : "https://api.themoviedb.org/3/movie/popular"
+);
 
-    url.searchParams.set("api_key", apiKey);
-    url.searchParams.set("query", query);
-    url.searchParams.set("language", language);
-    url.searchParams.set("include_adult", "false");
-    url.searchParams.set("page", "1");
+url.searchParams.set("api_key", apiKey);
+url.searchParams.set("language", language);
+url.searchParams.set("include_adult", "false");
+url.searchParams.set("page", "1");
+
+if (query) {
+  url.searchParams.set("query", query);
+}
+
 
     const response = await fetch(url);
 
