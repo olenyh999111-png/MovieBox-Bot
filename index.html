@@ -93,7 +93,9 @@ async function renderMovies() {
     const params = new URLSearchParams({ language: "ru-RU" });
     if (query) params.set("q", query);
 
-    const response = await fetch(`/api/search?${params}`);
+  
+const response = await fetch("https://moviebox-bot.vercel.app/api/search?" + params.toString());
+
     if (!response.ok) throw new Error("Ошибка API: " + response.status);
 
     const data = await response.json();
