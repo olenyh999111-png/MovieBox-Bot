@@ -137,20 +137,41 @@ function escapeHTML(value) {
 }
 
 
-function showDetails(m){
- const message=m.title+" ("+m.year+") — "+m.genre+". Открой Telegram-бота для дальнейшего поиска.";
- if(tg?.showPopup){
-  tg.showPopup(
-   {title:m.title,message,buttons:[
-    {id:"bot",type:"default",text:"Открыть бота"},
-    {type:"cancel"}
-   ]},
-   (id)=>{if(id==="bot")openBot();}
-  );
- } else {
-  alert(message);
- }
+
+function showDetails(m) {
+  const title = m.title || "Без названия";
+  const year = m.year || "Год неизвестен";
+  const message = `${title} (${year}). Открой Telegram-бота для дальнейшего поиска.`;
+
+  if (window.Telegram?.WebApp) {
+    const tg = window.Telegram.WebApp;
+
+    tg.showPopup({
+      title: title,
+      message: message,
+      buttons: [
+        {
+          id: "bot",
+          type: "default",
+          text: "Открыть бота"
+        },
+        {
+          type: "cancel",
+          text: "Закрыть"
+        }
+      ]
+    }, function(id) {
+      if (id === "bot") {
+        openBot();
+      }
+    });
+  } else {
+    if (confirm(message + "\n\nОткрыть Telegram-бота?")) {
+      openBot();
+    }
+  }
 }
+
 
 function openBot(){
  if(tg?.openTelegramLink) tg.openTelegramLink(botUrl);
