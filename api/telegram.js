@@ -7,10 +7,11 @@ export default async function handler(req, res) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
   const adminId = process.env.ADMIN_TELEGRAM_ID;
-  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/+$/, "");
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!token || !secret || !adminId || !supabaseUrl || !supabaseKey) {
+    console.error("Missing required environment variable");
     return res.status(500).json({ error: "Server configuration error" });
   }
 
@@ -37,38 +38,58 @@ export default async function handler(req, res) {
       }
     );
 
-    const result = await response.json();
+    const result = await response.json().catch(() => ({}));
+
     if (!response.ok || !result.ok) {
+      console.error(`Telegram ${method} failed:`, response.status);
       throw new Error(`Telegram ${method} request failed`);
     }
+
     return result;
   }
 
   async function db(path, options = {}) {
+    const headers = new Headers(options.headers || {});
+    headers.set("apikey", supabaseKey);
+    headers.set("Content-Type", "application/json");
+
+    // New sb_secret_ keys are API keys, not JWTs.
+    // Only legacy service_role keys belong in Authorization: Bearer.
+    if (supabaseKey.startsWith("sb_secret_")) {
+      headers.delete("Authorization");
+    } else {
+      headers.set("Authorization", `Bearer ${supabaseKey}`);
+    }
+
     const response = await fetch(
-      `${supabaseUrl.replace(/\/$/, "")}/rest/v1/${path}`,
+      `${supabaseUrl}/rest/v1/${path}`,
       {
         ...options,
-        headers: {
-          apikey: supabaseKey,
-          Authorization: `Bearer ${supabaseKey}`,
-          "Content-Type": "application/json",
-          ...(options.headers || {})
-        }
+        headers
       }
     );
 
     if (!response.ok) {
-      console.error("Supabase request failed:", response.status);
-      throw new Error("Database request failed");
+      const details = (await response.text()).slice(0, 1000);
+      console.error(
+        "Supabase request failed:",
+        response.status,
+        details
+      );
+      throw new Error(`Supabase request failed (${response.status})`);
     }
 
     if (response.status === 204) return null;
-    return response.json();
+
+    const result = await response.text();
+    return result ? JSON.parse(result) : null;
   }
 
   async function reply(value) {
-    await telegram("sendMessage", { chat_id: chatId, text: value });
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: value
+    });
   }
 
   async function getUser(telegramId = senderId) {
@@ -87,6 +108,10 @@ export default async function handler(req, res) {
       })
     });
 
+    if (!created?.length) {
+      throw new Error("User creation returned no row");
+    }
+
     return created[0];
   }
 
@@ -101,9 +126,9 @@ export default async function handler(req, res) {
 
     const user = await getUser(telegramId);
     const column = tier === "premium" ? "premium_until" : "vip_until";
-    const current = user[column] ? new Date(user[column]) : new Date();
+    const existing = user[column] ? new Date(user[column]) : new Date();
     const now = new Date();
-    const start = current > now ? current : now;
+    const start = existing > now ? existing : now;
 
     start.setUTCDate(start.getUTCDate() + days);
 
@@ -112,7 +137,9 @@ export default async function handler(req, res) {
       {
         method: "PATCH",
         headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ [column]: start.toISOString() })
+        body: JSON.stringify({
+          [column]: start.toISOString()
+        })
       }
     );
 
@@ -146,13 +173,23 @@ export default async function handler(req, res) {
       const user = await getUser();
       const now = new Date();
 
-      const premium = user.premium_until && new Date(user.premium_until) > now;
-      const vip = user.vip_until && new Date(user.vip_until) > now;
+      const premium =
+        user.premium_until && new Date(user.premium_until) > now;
+      const vip =
+        user.vip_until && new Date(user.vip_until) > now;
 
       await reply(
         "Ваш статус MovieBox 🎬\n\n" +
-        `Premium: ${premium ? "активен до " + new Date(user.premium_until).toLocaleDateString("ru-RU") : "не активен"}\n` +
-        `VIP: ${vip ? "активен до " + new Date(user.vip_until).toLocaleDateString("ru-RU") : "не активен"}`
+        `Premium: ${
+          premium
+            ? "активен до " + new Date(user.premium_until).toLocaleDateString("ru-RU")
+            : "не активен"
+        }\n` +
+        `VIP: ${
+          vip
+            ? "активен до " + new Date(user.vip_until).toLocaleDateString("ru-RU")
+            : "не активен"
+        }`
       );
     } else if (text.startsWith("/grant ")) {
       if (!isAdmin) {
@@ -163,15 +200,20 @@ export default async function handler(req, res) {
         const tier = (parts[2] || "").toLowerCase();
         const days = Number(parts[3]);
 
-        if (!targetId || !["premium", "vip"].includes(tier) ||
-            ![7, 14, 30, 365].includes(days)) {
+        if (
+          !targetId ||
+          !["premium", "vip"].includes(tier) ||
+          ![7, 14, 30, 365].includes(days)
+        ) {
           await reply(
             "Формат:\n/grant TELEGRAM_ID premium 7\n" +
             "Доступные сроки: 7, 14, 30, 365 дней."
           );
         } else {
           await grant(targetId, tier, days);
-          await reply(`✅ ${tier.toUpperCase()} выдан на ${days} дней пользователю ${targetId}.`);
+          await reply(
+            `✅ ${tier.toUpperCase()} выдан на ${days} дней пользователю ${targetId}.`
+          );
         }
       }
     } else if (text.startsWith("/promo ")) {
@@ -235,7 +277,10 @@ export default async function handler(req, res) {
             await db("moviebox_promo_redemptions", {
               method: "POST",
               headers: { Prefer: "return=minimal" },
-              body: JSON.stringify({ code, telegram_id: senderId })
+              body: JSON.stringify({
+                code,
+                telegram_id: senderId
+              })
             });
 
             await db(
@@ -243,12 +288,15 @@ export default async function handler(req, res) {
               {
                 method: "PATCH",
                 headers: { Prefer: "return=minimal" },
-                body: JSON.stringify({ activations: promo.activations + 1 })
+                body: JSON.stringify({
+                  activations: promo.activations + 1
+                })
               }
             );
 
             await reply(
-              `Промокод активирован! 🎉\nПодписка ${promo.tier} выдана на ${promo.duration_days} дней.`
+              `Промокод активирован! 🎉\n` +
+              `Подписка ${promo.tier} выдана на ${promo.duration_days} дней.`
             );
           }
         }
@@ -266,9 +314,15 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   } catch (error) {
     console.error("MovieBox bot error:", error.message);
+
     try {
-      await reply("Не удалось выполнить команду. Проверь настройки базы данных или попробуй позже.");
-    } catch {}
+      await reply(
+        "Не удалось выполнить команду. Проверь настройки базы данных или попробуй позже."
+      );
+    } catch (replyError) {
+      console.error("Telegram error while sending failure reply");
+    }
+
     return res.status(200).json({ ok: true });
   }
 }
