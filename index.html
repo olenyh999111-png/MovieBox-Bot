@@ -4,265 +4,417 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#080a12">
-<title>MovieBox — Кинотека</title>
+<meta name="theme-color" content="#211956">
+<title>MovieBox — Кинотеатр</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-:root{color-scheme:dark;--bg:#080a12;--panel:#121624;--blue:#4b83ff;--muted:#929bb1}
+:root{color-scheme:dark;--bg:#080a12;--panel:#121624;--panel2:#171d2d;--blue:#4b83ff;--blue2:#78a4ff;--muted:#929bb1;--line:#272e42;--green:#75e2ad}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-header{padding:24px 18px 14px;background:linear-gradient(140deg,#14244a,#080a12 75%)}
-.brand{font-size:26px;font-weight:900;letter-spacing:-1px}.brand span{color:#5c91ff}
-.sub{color:#aeb8d0;font-size:13px;margin-top:5px}
-.wrap{padding:16px 16px 100px;max-width:760px;margin:auto}
-.search{display:flex;gap:9px;margin:4px 0 22px}
-input{min-width:0;width:100%;background:#171c2b;border:1px solid #272e42;border-radius:13px;padding:14px;color:white;font-size:16px;outline:none}
-button{border:0;border-radius:12px;padding:12px 15px;background:var(--blue);color:white;font-weight:700;font-size:14px;cursor:pointer}
+body{margin:0;background-color:#080a12;background-image:radial-gradient(ellipse at 8% 4%,rgba(139,62,211,.42),transparent 38%),radial-gradient(ellipse at 92% 24%,rgba(45,105,235,.36),transparent 42%),linear-gradient(135deg,#160c29 0%,#201342 22%,#1c2258 48%,#12386d 73%,#081b31 100%);background-attachment:fixed;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input{font:inherit}
+button{border:0;border-radius:12px;padding:12px 15px;background:var(--blue);color:#fff;font-weight:750;font-size:14px;cursor:pointer}
 button:disabled{opacity:.6;cursor:wait}
+button:focus-visible,input:focus-visible{outline:2px solid var(--blue2);outline-offset:2px}
+header{padding:22px 17px 14px;background:linear-gradient(118deg,rgba(91,35,135,.88) 0%,rgba(49,47,132,.86) 48%,rgba(18,83,145,.88) 100%);border-bottom:1px solid rgba(149,153,255,.17)}
+.head-inner,.wrap{max-width:800px;margin:auto}
+.brand{font-size:27px;font-weight:950;letter-spacing:-1px}.brand span{color:#5c91ff}
+.sub{color:#aeb8d0;font-size:13px;margin-top:5px}
+.account{margin-top:17px;padding:13px 14px;background:#0c1223b8;border:1px solid #2a3b61;border-radius:15px;display:grid;grid-template-columns:1fr auto;gap:5px 12px;align-items:center}
+.account-label{font-size:11px;color:#9fb6eb;letter-spacing:1px;font-weight:800;text-transform:uppercase}
+#tierBadge{font-size:11px;border-radius:999px;padding:5px 9px;background:#253657;color:#c9d9ff;font-weight:900;letter-spacing:.5px}
+.account-main{font-size:17px;font-weight:850;grid-column:1}
+.account-detail{font-size:12px;color:#aeb8d0;line-height:1.5;grid-column:1/-1;overflow-wrap:anywhere}
+#statusNote{font-size:11px;color:#7584a3;grid-column:1/-1}
+.wrap{padding:14px 15px 105px}
+.page-tabs{display:flex;gap:7px;overflow:auto;padding:4px 0 15px;scrollbar-width:none}
+.page-tabs::-webkit-scrollbar{display:none}
+.tab-btn{flex:1;white-space:nowrap;min-width:0;background:#151a29;border:1px solid #282f43;color:#aeb8d0;padding:12px 8px;font-size:13px}
+.tab-btn.active{background:linear-gradient(115deg,#6531a1,#245fc1);border-color:#7588ff;color:#fff}
+.page{display:none}.page.active{display:block}
+.hero{background:linear-gradient(120deg,rgba(88,40,133,.94),rgba(39,48,125,.94) 56%,rgba(20,68,125,.94));border:1px solid rgba(145,153,255,.3);border-radius:18px;padding:20px;margin:4px 0 21px;box-shadow:0 12px 32px rgba(6,8,28,.18)}
+.hero small{color:#9cbaff;font-weight:800;text-transform:uppercase;letter-spacing:1.5px}
+.hero h1{font-size:25px;margin:10px 0}.hero p{color:#c3cce0;line-height:1.5;font-size:14px;margin:0 0 15px}
 h2{font-size:19px;margin:20px 0 13px}
-.hero{background:linear-gradient(120deg,#1c3160,#151b2c);border:1px solid #293858;border-radius:18px;padding:20px;margin-bottom:22px}
-.hero small{color:#9cbaff;font-weight:700;text-transform:uppercase;letter-spacing:1.5px}
-.hero h1{font-size:25px;margin:10px 0}.hero p{color:#c3cce0;line-height:1.5;font-size:14px}
-.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
-.movie{overflow:hidden;background:var(--panel);border:1px solid #22283a;border-radius:15px}
-.poster{width:100%;height:190px;object-fit:cover;background:linear-gradient(145deg,#243b68,#10131f)}
+.search{display:flex;gap:9px;margin:5px 0 17px}
+input{min-width:0;width:100%;background:#171c2b;border:1px solid #272e42;border-radius:13px;padding:14px;color:white;font-size:16px;outline:none}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+.movie{overflow:hidden;background:var(--panel);border:1px solid #22283a;border-radius:15px;min-width:0}
+.poster{display:block;width:100%;height:190px;object-fit:cover;background:linear-gradient(145deg,#243b68,#10131f)}
 .poster-placeholder{height:190px;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#243b68,#10131f);color:#929bb1;font-size:13px}
 .movie-info{padding:11px}
 .movie h3{font-size:15px;margin:0 0 6px;line-height:1.3}
 .meta{color:var(--muted);font-size:12px;margin-bottom:10px}
 .overview{color:#c3cce0;font-size:12px;line-height:1.5}
-.movie a{display:block;color:#9cbaff;font-size:13px;margin-top:10px}
-.empty{padding:24px 8px;color:var(--muted);text-align:center;grid-column:1/-1;overflow-wrap:anywhere;line-height:1.5}
-.actions{display:grid;gap:10px;margin-top:24px}
-.secondary{background:#1a2030;border:1px solid #30384c}
-.panel{background:var(--panel);border:1px solid #272e42;border-radius:16px;padding:17px;margin:20px 0}
-.panel p{color:#aeb8d0;font-size:14px;line-height:1.5}
+.movie-actions{display:grid;gap:7px;margin-top:11px}
+.save-btn{background:#222c44;border:1px solid #344467;color:#c8d9ff;padding:9px;font-size:12px}
+.save-btn.saved{background:#193b32;border-color:#2a6a55;color:#a4f0cd}
+.movie-link{display:block;color:#9cbaff;font-size:12px;text-decoration:none;margin-top:4px}
+.empty{padding:23px 8px;color:var(--muted);text-align:center;grid-column:1/-1;overflow-wrap:anywhere;line-height:1.55;background:#101421;border:1px dashed #2a3248;border-radius:14px}
+.panel{background:var(--panel);border:1px solid #272e42;border-radius:16px;padding:17px;margin:16px 0}
+.panel p{color:#aeb8d0;font-size:14px;line-height:1.55}
 .panel input{margin:7px 0 10px}
-.status{font-size:13px;line-height:1.5;margin-top:10px;overflow-wrap:anywhere}
-#usage{color:#9cbaff;font-size:13px;margin:0 0 16px}
-footer{text-align:center;color:#778198;font-size:12px;padding:25px 5px}
-nav{position:fixed;bottom:0;left:0;right:0;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:#0b0e18f2;border-top:1px solid #242a3a;display:flex;justify-content:center;z-index:5}
-nav button{width:100%;max-width:720px}
-@media(min-width:540px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}.poster,.poster-placeholder{height:220px}}
+.status{font-size:13px;line-height:1.5;margin-top:10px;overflow-wrap:anywhere;color:#aeb8d0}
+.muted{color:var(--muted)}
+.secondary{background:#1a2030;border:1px solid #30384c}
+.plan-grid{display:grid;grid-template-columns:1fr;gap:13px}
+.plan{background:linear-gradient(155deg,rgba(49,31,79,.95),rgba(18,26,57,.96) 58%,rgba(13,35,61,.97));border:1px solid rgba(132,136,204,.32);border-radius:17px;padding:17px;position:relative;overflow:hidden}
+.plan.featured{border-color:#477ce2;box-shadow:inset 0 0 0 1px #254678}
+.plan.vip{border-color:#7f65c9}
+.plan-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.plan h3{font-size:20px;margin:0}
+.plan-tag{font-size:10px;font-weight:900;letter-spacing:.7px;border-radius:999px;padding:5px 7px;background:#253656;color:#c9d9ff}
+.plan-price{font-size:22px;font-weight:900;margin:16px 0 3px}
+.plan-cycle{font-size:12px;color:var(--muted)}
+.plan ul{padding-left:19px;margin:15px 0 18px;color:#cad2e4;font-size:13px;line-height:1.8}
+.plan button{width:100%}
+.notice{padding:12px 13px;background:#151b2a;border:1px solid #2b344a;border-radius:12px;color:#b4bfd6;font-size:12px;line-height:1.55;margin:13px 0}
+.archive-tools{display:flex;gap:8px;align-items:center;justify-content:space-between;margin:14px 0}
+.archive-tools span{font-size:12px;color:var(--muted)}
+.danger{background:#38202a;border:1px solid #613041;color:#ffc3d0;padding:9px 11px;font-size:12px}
+.actions{display:grid;gap:10px;margin-top:23px}
+footer{text-align:center;color:#778198;font-size:12px;padding:24px 5px}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;padding:9px 10px calc(9px + env(safe-area-inset-bottom));background:#0b0e18f5;border-top:1px solid #242a3a;display:flex;gap:8px;justify-content:center;z-index:10;backdrop-filter:blur(14px)}
+.bottom-nav button{flex:1;max-width:250px;background:transparent;color:#8f9ab2;padding:9px 3px;font-size:11px;display:flex;flex-direction:column;align-items:center;gap:4px}
+.bottom-nav button .nav-icon{font-size:19px;line-height:1.1}
+.bottom-nav button.active{color:#a9c5ff;background:#18284a}
+@media(min-width:560px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}.poster,.poster-placeholder{height:220px}.plan-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.plan{padding:15px}.plan h3{font-size:18px}.plan-price{font-size:19px}}
 </style>
 </head>
 <body>
 <header>
-  <div class="brand">MOVIE<span>BOX</span></div>
-  <div class="sub">Твоя кинотека — фильмы в одном месте</div>
+  <div class="head-inner">
+    <div class="brand">MOVIE<span>BOX</span></div>
+    <div class="sub">Твоя кинотека — фильмы в одном месте</div>
+    <section class="account" aria-label="Статус аккаунта">
+      <div class="account-label">ТВОЙ АККАУНТ</div>
+      <div id="tierBadge">НЕ ОБНОВЛЁН</div>
+      <div class="account-main" id="accountTitle">Статус подписки</div>
+      <div class="account-detail" id="accountDetail">Выполни поиск после подключения Telegram, чтобы увидеть тариф и остаток поисков.</div>
+      <div id="statusNote">Статус и лимит обновляются после поискового запроса.</div>
+    </section>
+  </div>
 </header>
 
 <main class="wrap">
-  <section class="hero">
-    <small>MovieBox experience</small>
-    <h1>Что будем смотреть?</h1>
-    <p>Ищи кино, изучай подборку и подключай свой Telegram-аккаунт.</p>
-    <button type="button" onclick="openBot()">Открыть Telegram-бота ↗</button>
-  </section>
-
-  <section class="panel">
-    <h2 style="margin-top:0">🔐 Подключить Telegram</h2>
-    <p>1. Открой бота и отправь команду <b>/link</b>.<br>
-    2. Введи одноразовый код ниже. Он действует ограниченное время и используется один раз.</p>
-    <form id="linkForm">
-      <input id="linkCode" name="code" type="text" placeholder="Одноразовый код из Telegram" autocomplete="off" required minlength="20" maxlength="100" pattern="[A-Za-z0-9_-]+">
-      <button type="submit" style="width:100%">Подключить аккаунт</button>
-    </form>
-    <div id="linkStatus" class="status" role="status" aria-live="polite"></div>
-  </section>
-
-  <div class="search">
-    <input id="query" type="search" placeholder="Название фильма..." aria-label="Поиск фильмов">
-    <button id="searchButton" type="button" onclick="renderMovies()">Найти</button>
+  <div class="page-tabs" role="tablist" aria-label="Разделы MovieBox">
+    <button class="tab-btn active" data-page="home" role="tab" aria-selected="true">🎬 Главная</button>
+    <button class="tab-btn" data-page="subscription" role="tab" aria-selected="false">💎 Подписка</button>
+    <button class="tab-btn" data-page="archive" role="tab" aria-selected="false">🔖 Мой архив</button>
   </div>
 
-  <div id="usage" role="status" aria-live="polite"></div>
-  <h2 id="sectionTitle">Популярные фильмы</h2>
-  <section class="grid" id="movies" aria-live="polite"></section>
+  <section class="page active" id="page-home" role="tabpanel">
+    <section class="hero">
+      <small>MovieBox experience</small>
+      <h1>Что будем смотреть?</h1>
+      <p>Ищи фильмы, сохраняй понравившиеся в личный архив и следи за лимитом поисков.</p>
+      <button type="button" onclick="openBot()">Открыть Telegram-бота ↗</button>
+    </section>
 
-  <section class="actions">
-    <button type="button" onclick="openBot()">Перейти к @MovieBoxFinderBot</button>
-    <button type="button" class="secondary" onclick="shareApp()">Поделиться приложением</button>
+    <section class="panel">
+      <h2 style="margin-top:0">🔐 Подключить Telegram</h2>
+      <p>1. Открой бота и отправь команду <b>/link</b>.<br>2. Введи одноразовый код ниже. Он действует 10 минут и используется один раз.</p>
+      <form id="linkForm">
+        <input id="linkCode" name="code" type="text" placeholder="Одноразовый код из Telegram" autocomplete="off" required minlength="20" maxlength="100" pattern="[A-Za-z0-9_-]+">
+        <button type="submit" style="width:100%">Подключить аккаунт</button>
+      </form>
+      <div id="linkStatus" class="status" role="status" aria-live="polite"></div>
+    </section>
+
+    <div class="search">
+      <input id="query" type="search" placeholder="Название фильма..." aria-label="Поиск фильмов">
+      <button id="searchButton" type="button" onclick="renderMovies()">Найти</button>
+    </div>
+    <h2 id="sectionTitle">Популярные фильмы</h2>
+    <section class="grid" id="movies" aria-live="polite"></section>
+    <section class="actions">
+      <button type="button" onclick="switchPage('subscription')">Посмотреть тарифы</button>
+      <button type="button" class="secondary" onclick="shareApp()">Поделиться приложением</button>
+    </section>
   </section>
-  <footer>MovieBox · Каталог и доступ к Telegram-боту</footer>
+
+  <section class="page" id="page-subscription" role="tabpanel">
+    <section class="hero">
+      <small>MovieBox membership</small>
+      <h1>Выбери свой тариф</h1>
+      <p>Сравни доступные лимиты. Фактический статус и лимиты применяются на сервере.</p>
+    </section>
+    <div class="plan-grid">
+      <article class="plan">
+        <div class="plan-top"><h3>Free</h3><span class="plan-tag">СТАРТ</span></div>
+        <div class="plan-price">Бесплатно</div><div class="plan-cycle">5 поисков всего</div>
+        <ul><li>Поиск фильмов</li><li>Популярный каталог</li><li>Архив на этом устройстве</li></ul>
+        <button class="secondary" type="button" onclick="switchPage('home')">Продолжить бесплатно</button>
+      </article>
+      <article class="plan featured">
+        <div class="plan-top"><h3>Premium</h3><span class="plan-tag">ПОПУЛЯРНЫЙ</span></div>
+        <div class="plan-price">Цена уточняется</div><div class="plan-cycle">100 поисков в день</div>
+        <ul><li>Больше поисков каждый день</li><li>Доступ к поиску фильмов</li><li>Архив на этом устройстве</li></ul>
+        <button type="button" onclick="askAboutPlan('Premium')">Узнать о Premium</button>
+      </article>
+      <article class="plan vip">
+        <div class="plan-top"><h3>VIP</h3><span class="plan-tag">МАКСИМУМ</span></div>
+        <div class="plan-price">Цена уточняется</div><div class="plan-cycle">250 поисков в день</div>
+        <ul><li>Самый высокий лимит</li><li>Доступ к поиску фильмов</li><li>Архив на этом устройстве</li></ul>
+        <button type="button" onclick="askAboutPlan('VIP')">Узнать о VIP</button>
+      </article>
+    </div>
+    <div class="notice" id="planStatus" role="status" aria-live="polite"><b>Важно:</b> точные цены и автоматическая оплата не настроены в интерфейсе. Кнопки тарифов открывают бота для уточнения стоимости и условий.</div>
+    <section class="panel">
+      <h2 style="margin-top:0">Есть промокод?</h2>
+      <p>Отправь боту команду <b>/redeem КОД</b>, заменив «КОД» своим промокодом. Если он активен, бот применит его к аккаунту.</p>
+      <button type="button" class="secondary" onclick="openBot()">Открыть @MovieBoxFinderBot</button>
+    </section>
+  </section>
+
+  <section class="page" id="page-archive" role="tabpanel">
+    <section class="hero">
+      <small>Your collection</small>
+      <h1>Мой архив 🔖</h1>
+      <p>Сохраняй фильмы из каталога, чтобы позже быстро найти их снова.</p>
+    </section>
+    <div class="archive-tools"><span id="archiveCount">Сохранено: 0</span><button type="button" class="danger" onclick="clearArchive()">Очистить архив</button></div>
+    <section class="grid" id="archiveMovies"></section>
+    <div class="notice">Архив сейчас хранится локально в браузере этого устройства. Он не синхронизируется между разными устройствами или браузерами.</div>
+  </section>
+  <footer>MovieBox · Каталог, подписки и личный архив</footer>
 </main>
 
-<nav><button type="button" onclick="openBot()">Запустить MovieBox в Telegram ↗</button></nav>
+<nav class="bottom-nav" aria-label="Нижняя навигация">
+  <button class="active" data-page="home"><span class="nav-icon">⌂</span><span>Главная</span></button>
+  <button data-page="subscription"><span class="nav-icon">◇</span><span>Подписка</span></button>
+  <button data-page="archive"><span class="nav-icon">▣</span><span>Мой архив</span></button>
+</nav>
 
 <script>
 "use strict";
-
 const tg = window.Telegram?.WebApp;
 tg?.ready();
 tg?.expand();
-
 const botUrl = "https://t.me/MovieBoxFinderBot";
 const apiBase = "https://moviebox-bot.vercel.app";
+const FAVORITES_KEY = "moviebox_favorites_v1";
+const USAGE_KEY = "moviebox_last_usage_v1";
+let currentMovies = [];
 
 function escapeHTML(value) {
-  return String(value).replace(/[&<>"']/g, char => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
-  })[char]);
+  return String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
+}
+function safeReadJSON(key, fallback) {
+  try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; }
+  catch { return fallback; }
+}
+function getFavorites() {
+  const value = safeReadJSON(FAVORITES_KEY, []);
+  return Array.isArray(value) ? value.filter(item => item && item.id != null && item.title) : [];
+}
+function saveFavorites(items) {
+  try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(items)); return true; }
+  catch { alert("Не удалось сохранить архив. Возможно, память браузера заполнена или недоступна."); return false; }
+}
+function getMovieId(movie) { return String(movie.id); }
+function isSaved(movie) { return getFavorites().some(item => getMovieId(item) === getMovieId(movie)); }
+
+function updateUsage(data, fromCache = false) {
+  if (!data || !data.tier || data.limit == null || data.used == null || data.remaining == null) return;
+  const snapshot = {
+    tier: String(data.tier).toLowerCase(),
+    limit: Number(data.limit),
+    used: Number(data.used),
+    remaining: Number(data.remaining),
+    updatedAt: Date.now()
+  };
+  if (![snapshot.limit, snapshot.used, snapshot.remaining].every(Number.isFinite)) return;
+  try { localStorage.setItem(USAGE_KEY, JSON.stringify(snapshot)); } catch {}
+  renderUsage(snapshot, fromCache);
+}
+function renderUsage(data, fromCache = false) {
+  const tier = (data.tier || "free").toUpperCase();
+  const names = {FREE:"Free", PREMIUM:"Premium", VIP:"VIP"};
+  document.getElementById("tierBadge").textContent = tier;
+  document.getElementById("accountTitle").textContent = (names[tier] || tier) + " · статус по поиску";
+  const period = tier === "FREE" ? "всего" : "за день";
+  document.getElementById("accountDetail").textContent = `Осталось поисков: ${Math.max(0, data.remaining)} из ${data.limit} ${period}. Использовано: ${data.used}.`;
+  document.getElementById("statusNote").textContent = fromCache
+    ? "Показаны последние сохранённые данные. Выполни новый поиск, чтобы обновить статус."
+    : "Данные обновлены по ответу сервера после поиска.";
+}
+function restoreUsage() {
+  const previous = safeReadJSON(USAGE_KEY, null);
+  if (previous && previous.tier && previous.updatedAt) {
+    renderUsage(previous, true);
+    return;
+  }
+  document.getElementById("tierBadge").textContent = "НЕ ОБНОВЛЁН";
+  document.getElementById("accountTitle").textContent = "Подключи Telegram";
+  document.getElementById("accountDetail").textContent = "Чтобы увидеть свой тариф и остаток поисков, подключи аккаунт командой /link в боте, а затем выполни поиск.";
+  document.getElementById("statusNote").textContent = "Лимит проверяет сервер; данные появятся после успешного поискового запроса.";
 }
 
 async function readResponse(response) {
   const text = await response.text();
   let data;
-
-  try {
-    data = JSON.parse(text);
-  } catch {
-    if (response.status === 404) {
-      throw new Error("Сервер вернул 404. Проверь публикацию API в Vercel.");
-    }
+  try { data = JSON.parse(text); }
+  catch {
+    if (response.status === 404) throw new Error("API вернул 404. Проверь маршрут /api/search и последний деплой Vercel.");
     throw new Error("Сервер вернул не JSON (HTTP " + response.status + ").");
   }
-
-  if (!response.ok) {
-    throw new Error(data.error || "Ошибка API: " + response.status);
-  }
-
+  if (data && data.tier && data.limit != null && data.used != null && data.remaining != null) updateUsage(data);
+  if (!response.ok) throw new Error(data.error || "Ошибка API: " + response.status);
   return data;
 }
 
 async function linkTelegram(event) {
   event.preventDefault();
-
   const input = document.getElementById("linkCode");
   const status = document.getElementById("linkStatus");
   const button = document.querySelector("#linkForm button");
-
   button.disabled = true;
   status.textContent = "Подключаем аккаунт…";
-
   try {
     const response = await fetch(apiBase + "/api/link", {
-      method: "POST",
-      credentials: "include",
+      method: "POST", credentials: "include",
       headers: {"Content-Type":"application/json","Accept":"application/json"},
       body: JSON.stringify({code:input.value.trim()})
     });
-
     const data = await readResponse(response);
-
-    if (!data.success) {
-      throw new Error(data.error || "Не удалось подключить аккаунт.");
-    }
-
+    if (!data.success) throw new Error(data.error || "Не удалось подключить аккаунт.");
     input.value = "";
-    status.textContent = "Аккаунт подключён. Проверь поиск фильма.";
+    status.textContent = "Аккаунт подключён. Выполни поиск фильма, чтобы обновить статус и лимит.";
   } catch (error) {
-    status.textContent =
-      (error.message || "Ошибка подключения.") +
-      " Если это ошибка CORS, открой приложение на домене Vercel.";
-  } finally {
-    button.disabled = false;
-  }
+    status.textContent = error.message || "Ошибка подключения.";
+  } finally { button.disabled = false; }
 }
-
 document.getElementById("linkForm").addEventListener("submit", linkTelegram);
 
-function renderMovieCard(movie) {
+function renderMovieCard(movie, archive = false) {
   const title = movie.title || "Без названия";
   const poster = movie.poster
-    ? `<img class="poster" src="${escapeHTML(movie.poster)}" alt="Постер: ${escapeHTML(title)}" loading="lazy">`
+    ? `<img class="poster" src="${escapeHTML(movie.poster)}" alt="Постер: ${escapeHTML(title)}" loading="lazy" referrerpolicy="no-referrer">`
     : '<div class="poster-placeholder">Постер отсутствует</div>';
-
-  const kinogoUrl =
-    "https://kinogo.ec/?do=search&subaction=search&story=" +
-    encodeURIComponent(title);
-
-  return `
-    <article class="movie">
-      ${poster}
-      <div class="movie-info">
-        <h3>${escapeHTML(title)}</h3>
-        <div class="meta">${escapeHTML(String(movie.year || "Год неизвестен"))}</div>
-        <div class="overview">${escapeHTML(movie.overview || "Описание отсутствует.")}</div>
-        <a href="${escapeHTML(kinogoUrl)}" target="_blank" rel="noopener noreferrer">Найти фильм на Kinogo</a>
+  const saved = isSaved(movie);
+  const kinogoUrl = "https://kinogo.ec/?do=search&subaction=search&story=" + encodeURIComponent(title);
+  return `<article class="movie">
+    ${poster}<div class="movie-info">
+      <h3>${escapeHTML(title)}</h3>
+      <div class="meta">${escapeHTML(String(movie.year || "Год неизвестен"))}</div>
+      <div class="overview">${escapeHTML(movie.overview || "Описание отсутствует.")}</div>
+      <div class="movie-actions">
+        ${archive
+          ? `<button type="button" class="danger" data-remove-id="${escapeHTML(getMovieId(movie))}">Убрать из архива</button>`
+          : `<button type="button" class="save-btn ${saved ? "saved" : ""}" data-save-id="${escapeHTML(getMovieId(movie))}">${saved ? "✓ В архиве" : "＋ Сохранить"}</button>`}
       </div>
-    </article>`;
+      <a class="movie-link" href="${escapeHTML(kinogoUrl)}" target="_blank" rel="noopener noreferrer">Найти фильм в интернете ↗</a>
+    </div></article>`;
 }
+
+function toggleSavedById(id) {
+  const key = String(id);
+  const favorites = getFavorites();
+  const index = favorites.findIndex(item => getMovieId(item) === key);
+  if (index >= 0) favorites.splice(index, 1);
+  else {
+    const movie = currentMovies.find(item => getMovieId(item) === key);
+    if (!movie) return;
+    favorites.unshift({id:movie.id,title:movie.title,year:movie.year || null,overview:movie.overview || "",poster:movie.poster || null});
+  }
+  if (saveFavorites(favorites)) { renderMovieResults(); renderArchive(); }
+}
+function removeSavedById(id) {
+  if (saveFavorites(getFavorites().filter(item => getMovieId(item) !== String(id)))) { renderMovieResults(); renderArchive(); }
+}
+function renderMovieResults() {
+  const container = document.getElementById("movies");
+  if (!currentMovies.length) { container.innerHTML = '<div class="empty">Фильмы не найдены.</div>'; return; }
+  container.innerHTML = currentMovies.map(movie => renderMovieCard(movie)).join("");
+}
+function renderArchive() {
+  const favorites = getFavorites();
+  document.getElementById("archiveCount").textContent = `Сохранено: ${favorites.length}`;
+  const container = document.getElementById("archiveMovies");
+  if (!favorites.length) {
+    container.innerHTML = '<div class="empty">Архив пока пуст.<br>Найди фильм на главной и нажми «＋ Сохранить».</div>';
+    return;
+  }
+  const prev = currentMovies;
+  container.innerHTML = favorites.map(movie => renderMovieCard(movie, true)).join("");
+  currentMovies = prev;
+}
+function clearArchive() {
+  const favorites = getFavorites();
+  if (!favorites.length) return;
+  if (!confirm("Удалить все фильмы из архива на этом устройстве?")) return;
+  if (saveFavorites([])) { renderMovieResults(); renderArchive(); }
+}
+
+document.addEventListener("click", event => {
+  const saveButton = event.target.closest("[data-save-id]");
+  if (saveButton) { toggleSavedById(saveButton.dataset.saveId); return; }
+  const removeButton = event.target.closest("[data-remove-id]");
+  if (removeButton) removeSavedById(removeButton.dataset.removeId);
+});
 
 async function renderMovies() {
   const query = document.getElementById("query").value.trim();
   const container = document.getElementById("movies");
   const title = document.getElementById("sectionTitle");
-  const usage = document.getElementById("usage");
   const button = document.getElementById("searchButton");
-
   title.textContent = query ? "Результаты поиска" : "Популярные фильмы";
-  usage.textContent = "";
-  container.innerHTML = '<div class="empty">Загрузка фильмов...</div>';
+  container.innerHTML = '<div class="empty">Загрузка фильмов…</div>';
   button.disabled = true;
-
   try {
     const params = new URLSearchParams({language:"ru-RU"});
     if (query) params.set("q", query);
-
-    const url = apiBase + "/api/search?" + params.toString();
-
-    const response = await fetch(url, {
-      method: "GET",
-      credentials: "include",
-      cache: "no-store",
-      headers: {"Accept":"application/json"}
+    const response = await fetch(apiBase + "/api/search?" + params.toString(), {
+      method:"GET", credentials:"include", cache:"no-store", headers:{"Accept":"application/json"}
     });
-
     const data = await readResponse(response);
-    const movies = Array.isArray(data.results) ? data.results : [];
-
-    if (data.tier) {
-      usage.textContent =
-        "Тариф: " + String(data.tier).toUpperCase() +
-        " · Использовано: " + data.used +
-        " · Осталось: " + data.remaining;
+    currentMovies = Array.isArray(data.results) ? data.results : [];
+    if (!query && !data.tier) {
+      const note = document.getElementById("statusNote");
+      if (!safeReadJSON(USAGE_KEY, null)) note.textContent = "Каталог доступен. Для статуса и остатка поисков выполни поиск после подключения Telegram.";
     }
-
-    if (!movies.length) {
-      container.innerHTML = '<div class="empty">Ничего не найдено.</div>';
-      return;
-    }
-
-    container.innerHTML = movies.map(renderMovieCard).join("");
+    renderMovieResults();
   } catch (error) {
     console.error("MovieBox API error:", error);
-    container.innerHTML =
-      '<div class="empty">' +
-      escapeHTML(error.message || "Не удалось загрузить фильмы.") +
-      '</div>';
-  } finally {
-    button.disabled = false;
-  }
+    container.innerHTML = '<div class="empty">' + escapeHTML(error.message || "Не удалось загрузить фильмы.") + '</div>';
+  } finally { button.disabled = false; }
 }
+
+document.getElementById("query").addEventListener("keydown", event => { if (event.key === "Enter") renderMovies(); });
+
+function switchPage(page) {
+  const valid = ["home","subscription","archive"].includes(page) ? page : "home";
+  document.querySelectorAll(".page").forEach(el => el.classList.toggle("active", el.id === "page-" + valid));
+  document.querySelectorAll("[data-page]").forEach(el => {
+    const active = el.dataset.page === valid;
+    el.classList.toggle("active", active);
+    if (el.getAttribute("role") === "tab") el.setAttribute("aria-selected", String(active));
+  });
+  if (valid === "archive") renderArchive();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+document.querySelectorAll("[data-page]").forEach(button => button.addEventListener("click", () => switchPage(button.dataset.page)));
 
 function openBot() {
   if (tg?.openTelegramLink) tg.openTelegramLink(botUrl);
   else window.location.href = botUrl;
 }
-
-function shareApp() {
-  if (tg?.switchInlineQuery) {
-    tg.switchInlineQuery("MovieBox — кинотека", []);
-  } else if (navigator.share) {
-    navigator.share({
-      title:"MovieBox",
-      text:"Открой MovieBox в Telegram",
-      url:location.href
-    }).catch(() => {});
-  } else if (navigator.clipboard) {
-    navigator.clipboard.writeText(location.href)
-      .then(() => alert("Ссылка скопирована"))
-      .catch(() => alert(location.href));
-  } else {
-    alert(location.href);
+function askAboutPlan(plan) {
+  const status = document.getElementById("planStatus");
+  if (status) {
+    status.textContent = `Вы выбрали ${plan}. Актуальную цену, способы оплаты и активацию тарифа уточни у @MovieBoxFinderBot. Покупка с этой страницы пока автоматически не выполняется.`;
   }
+  openBot();
+}
+function shareApp() {
+  if (tg?.switchInlineQuery) tg.switchInlineQuery("MovieBox — кинотека", []);
+  else if (navigator.share) navigator.share({title:"MovieBox",text:"Открой MovieBox в Telegram",url:location.href}).catch(() => {});
+  else if (navigator.clipboard) navigator.clipboard.writeText(location.href).then(() => alert("Ссылка скопирована")).catch(() => alert(location.href));
+  else alert(location.href);
 }
 
-document.getElementById("query").addEventListener("keydown", event => {
-  if (event.key === "Enter") renderMovies();
-});
-
+restoreUsage();
+renderArchive();
 renderMovies();
 </script>
 </body>
