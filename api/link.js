@@ -32,8 +32,11 @@ export default async function handler(req, res) {
     );
 
     if (!response.ok) {
-      const details = (await response.text()).slice(0, 500);
-      console.error("Link API database error:", response.status, details);
+      console.error(
+        "Link API database error:",
+        response.status,
+        (await response.text()).slice(0, 300)
+      );
       throw new Error("Database request failed");
     }
 
@@ -50,12 +53,13 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Invalid or expired code" });
     }
 
-    const codeHash = createHash("sha256")
-      .update(code)
-      .digest("hex");
+    const now = new Date().toISOString();
+    const codeHash = createHash("sha256").update(code).digest("hex");
 
     const rows = await db(
-      `moviebox_link_codes?code_hash=eq.${encodeURIComponent(codeHash)}&used_at=is.null&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&select=id,telegram_id`
+      `moviebox_link_codes?code_hash=eq.${codeHash}` +
+      `&used_at=is.null&expires_at=gt.${encodeURIComponent(now)}` +
+      `&select=id,telegram_id`
     );
 
     if (!rows?.length) {
@@ -65,17 +69,16 @@ export default async function handler(req, res) {
     }
 
     const link = rows[0];
-    const rawSession = randomBytes(32).toString("base64url");
-    const sessionHash = createHash("sha256")
-      .update(rawSession)
-      .digest("hex");
 
+    // Mark the one-time code as used before creating a session.
     const updated = await db(
-      `moviebox_link_codes?id=eq.${link.id}&used_at=is.null&expires_at=gt.${encodeURIComponent(new Date().toISOString())}`,
+      `moviebox_link_codes?id=eq.${link.id}` +
+      `&used_at=is.null&expires_at=gt.${encodeURIComponent(now)}` +
+      `&select=id`,
       {
         method: "PATCH",
         headers: { Prefer: "return=representation" },
-        body: JSON.stringify({ used_at: new Date().toISOString() })
+        body: JSON.stringify({ used_at: now })
       }
     );
 
@@ -84,6 +87,11 @@ export default async function handler(req, res) {
         error: "Code has already been used"
       });
     }
+
+    const sessionToken = randomBytes(32).toString("base64url");
+    const tokenHash = createHash("sha256")
+      .update(sessionToken)
+      .digest("hex");
 
     const expiresAt = new Date(
       Date.now() + 7 * 24 * 60 * 60 * 1000
@@ -94,13 +102,18 @@ export default async function handler(req, res) {
       headers: { Prefer: "return=minimal" },
       body: JSON.stringify({
         telegram_id: link.telegram_id,
-        token_hash: sessionHash,
+        token_hash: tokenHash,
         expires_at: expiresAt
       })
     });
 
+    res.setHeader(
+      "Set-Cookie",
+      `moviebox_session=${sessionToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800`
+    );
+
     return res.status(200).json({
-      session: rawSession,
+      success: true,
       expires_at: expiresAt
     });
   } catch (error) {
