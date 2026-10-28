@@ -22,15 +22,18 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const message = req.body?.message;
+  const update = req.body || {};
+  const preCheckoutQuery = update.pre_checkout_query;
+  const message = update.message;
   const chatId = message?.chat?.id;
+  const rawSenderId = message?.from?.id ?? preCheckoutQuery?.from?.id;
 
-  if (!chatId || !message.from?.id) {
+  if (!rawSenderId) {
     return res.status(200).json({ ok: true });
   }
 
-  const senderId = String(message.from.id);
-  const text = (message.text || "").trim();
+  const senderId = String(rawSenderId);
+  const text = (message?.text || "").trim();
   const isAdmin = senderId === String(adminId);
 
   async function telegram(method, body) {
@@ -79,6 +82,66 @@ export default async function handler(req, res) {
 
     const result = await response.text();
     return result ? JSON.parse(result) : null;
+  }
+
+  // Подтверждаем предварительную проверку счёта Telegram Stars.
+  if (preCheckoutQuery) {
+    let approved = false;
+    const validationError =
+      "Не удалось проверить заказ. Вернитесь в MovieBox и создайте новый счёт.";
+
+    try {
+      const queryId = preCheckoutQuery.id;
+      const payload = preCheckoutQuery.invoice_payload;
+
+      if (queryId && payload && preCheckoutQuery.from?.id) {
+        const rows = await db(
+          `moviebox_star_orders?invoice_payload=eq.${encodeURIComponent(payload)}&select=invoice_payload,telegram_id,plan,stars_amount,currency,duration_days,status`
+        );
+        const order = Array.isArray(rows) ? rows[0] : null;
+
+        approved = Boolean(
+          order &&
+          String(order.telegram_id) === String(preCheckoutQuery.from.id) &&
+          order.status === "pending" &&
+          ["premium", "vip"].includes(order.plan) &&
+          Number(order.duration_days) === 30 &&
+          order.currency === "XTR" &&
+          Number(order.stars_amount) === Number(preCheckoutQuery.total_amount) &&
+          preCheckoutQuery.currency === "XTR"
+        );
+      }
+
+      await telegram("answerPreCheckoutQuery", {
+        pre_checkout_query_id: preCheckoutQuery.id,
+        ok: approved,
+        ...(approved ? {} : { error_message: validationError })
+      });
+
+      return res.status(200).json({ ok: true });
+    } catch (error) {
+      console.error(
+        "MovieBox pre-checkout validation failed:",
+        error.message
+      );
+
+      try {
+        if (preCheckoutQuery.id) {
+          await telegram("answerPreCheckoutQuery", {
+            pre_checkout_query_id: preCheckoutQuery.id,
+            ok: false,
+            error_message: validationError
+          });
+        }
+      } catch (answerError) {
+        console.error(
+          "Could not answer Telegram pre-checkout:",
+          answerError.message
+        );
+      }
+
+      return res.status(200).json({ ok: true });
+    }
   }
 
   async function reply(value) {
@@ -148,7 +211,6 @@ export default async function handler(req, res) {
       return;
     }
 
-    // Consume the same allowance used by the website.
     const limitResult = await db("rpc/consume_moviebox_search", {
       method: "POST",
       body: JSON.stringify({ p_telegram_id: senderId })
@@ -219,6 +281,156 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Только successful_payment подтверждает завершённый платёж.
+    if (message?.successful_payment) {
+      const payment = message.successful_payment;
+      const payload = payment.invoice_payload;
+      const chargeId = payment.telegram_payment_charge_id;
+
+      try {
+        if (!payload || !chargeId || !message.from?.id || !chatId) {
+          throw new Error("Successful payment update is missing required fields");
+        }
+
+        const rows = await db(
+          `moviebox_star_orders?invoice_payload=eq.${encodeURIComponent(payload)}&select=*`
+        );
+        const order = Array.isArray(rows) ? rows[0] : null;
+
+        if (!order) {
+          console.error("Paid Telegram invoice has no matching MovieBox order");
+
+          await telegram("sendMessage", {
+            chat_id: adminId,
+            text:
+              "⚠️ MovieBox: подтверждён платёж Stars, но заказ не найден.\n" +
+              `Telegram ID: ${senderId}\n` +
+              `Payload: ${String(payload).slice(0, 120)}\n` +
+              `Charge ID: ${String(chargeId).slice(0, 120)}`
+          });
+
+          await reply(
+            "Telegram сообщил об оплате, но заказ не удалось найти автоматически. " +
+            "Не оплачивай повторно. Напиши /paysupport для помощи."
+          );
+
+          return res.status(200).json({ ok: true });
+        }
+
+        const sameAlreadyPaidCharge =
+          order.status === "paid" &&
+          order.telegram_payment_charge_id === chargeId;
+
+        const statusCanBeProcessed =
+          order.status === "pending" || sameAlreadyPaidCharge;
+
+        if (
+          String(order.telegram_id) !== senderId ||
+          !statusCanBeProcessed ||
+          order.currency !== "XTR" ||
+          payment.currency !== "XTR" ||
+          Number(order.stars_amount) !== Number(payment.total_amount)
+        ) {
+          console.error("Paid Telegram invoice does not match its MovieBox order");
+
+          await telegram("sendMessage", {
+            chat_id: adminId,
+            text:
+              "⚠️ MovieBox: платёж Stars требует проверки.\n" +
+              `Telegram ID: ${senderId}\n` +
+              `Payload: ${String(payload).slice(0, 120)}\n` +
+              `Charge ID: ${String(chargeId).slice(0, 120)}`
+          });
+
+          await reply(
+            "Telegram сообщил об оплате, но данные заказа не совпали. " +
+            "Не оплачивай повторно. Напиши /paysupport для помощи."
+          );
+
+          return res.status(200).json({ ok: true });
+        }
+
+        const fulfilled = await db("rpc/fulfill_moviebox_star_payment", {
+          method: "POST",
+          body: JSON.stringify({
+            p_payload: payload,
+            p_telegram_id: senderId,
+            p_currency: payment.currency,
+            p_total_amount: Number(payment.total_amount),
+            p_telegram_payment_charge_id: chargeId,
+            p_provider_payment_charge_id:
+              payment.provider_payment_charge_id || null,
+            p_payment_json: payment
+          })
+        });
+
+        if (!fulfilled || fulfilled.ok !== true) {
+          console.error(
+            "MovieBox payment activation rejected:",
+            fulfilled?.error || "unknown error"
+          );
+
+          await telegram("sendMessage", {
+            chat_id: adminId,
+            text:
+              "⚠️ MovieBox: Telegram подтвердил платёж, но активация требует проверки.\n" +
+              `Telegram ID: ${senderId}\n` +
+              `Payload: ${String(payload).slice(0, 120)}\n` +
+              `Charge ID: ${String(chargeId).slice(0, 120)}\n` +
+              `Причина: ${String(fulfilled?.error || "unknown").slice(0, 120)}`
+          });
+
+          await reply(
+            "Оплата получена Telegram, но активация подписки требует проверки. " +
+            "Не оплачивай повторно. Напиши /paysupport."
+          );
+
+          return res.status(200).json({ ok: true });
+        }
+
+        const tier = String(fulfilled.tier || order.plan).toUpperCase();
+        const expiry = fulfilled.expires_at
+          ? new Date(fulfilled.expires_at).toLocaleDateString(
+              "ru-RU",
+              { timeZone: "Europe/Amsterdam" }
+            )
+          : null;
+
+        await reply(
+          `✅ Оплата подтверждена!\n\n` +
+          `Тариф: ${tier}\n` +
+          `Срок: ${fulfilled.duration_days || order.duration_days || 30} дней\n` +
+          (expiry ? `Действует до: ${expiry}\n` : "") +
+          "Подписка активирована. Спасибо за покупку! 🎬"
+        );
+
+        return res.status(200).json({ ok: true });
+      } catch (paymentError) {
+        console.error(
+          "MovieBox successful-payment processing failed:",
+          paymentError.message
+        );
+
+        try {
+          await telegram("sendMessage", {
+            chat_id: adminId,
+            text:
+              "🚨 MovieBox: ошибка обработки платежа; Telegram может повторить событие.\n" +
+              `Telegram ID: ${senderId}\n` +
+              `Charge ID: ${String(chargeId || "unknown").slice(0, 120)}\n` +
+              `Ошибка: ${String(paymentError.message || "unknown").slice(0, 200)}`
+          });
+        } catch (alertError) {
+          console.error(
+            "Could not alert MovieBox admin:",
+            alertError.message
+          );
+        }
+
+        return res.status(500).json({ ok: false });
+      }
+    }
+
     if (!text) {
       return res.status(200).json({ ok: true });
     }
@@ -286,8 +498,10 @@ export default async function handler(req, res) {
       const user = await getUser();
       const now = new Date();
 
-      const premium = user.premium_until && new Date(user.premium_until) > now;
-      const vip = user.vip_until && new Date(user.vip_until) > now;
+      const premium =
+        user.premium_until && new Date(user.premium_until) > now;
+      const vip =
+        user.vip_until && new Date(user.vip_until) > now;
 
       await reply(
         "Ваш статус MovieBox 🎬\n\n" +
@@ -414,6 +628,34 @@ export default async function handler(req, res) {
             );
           }
         }
+      }
+
+    } else if (text === "/paysupport") {
+      await reply(
+        "Поддержка оплаты MovieBox ⭐\n\n" +
+        "Если Telegram списал Stars, а подписка не активировалась, не оплачивай повторно. " +
+        "Пришли администратору скрин статуса платежа и свой Telegram ID из команды /id. " +
+        "Не отправляй коды входа или другие секретные данные."
+      );
+
+      try {
+        await telegram("sendMessage", {
+          chat_id: adminId,
+          text:
+            "🧾 Запрос поддержки оплаты MovieBox\n" +
+            `Telegram ID: ${senderId}\n` +
+            `Имя пользователя: ${
+              message.from?.username
+                ? "@" + message.from.username
+                : "не указано"
+            }\n` +
+            "Проверьте последние платежи/заказы этого пользователя в Supabase."
+        });
+      } catch (supportError) {
+        console.error(
+          "Could not notify admin about payment support:",
+          supportError.message
+        );
       }
 
     } else if (text === "/admin") {
