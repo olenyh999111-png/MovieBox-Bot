@@ -11,6 +11,7 @@ export default async function handler(req, res) {
   const adminId = process.env.ADMIN_TELEGRAM_ID;
   const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/+$/, "");
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const tmdbKey = process.env.TMDB_API_KEY;
 
   if (!token || !secret || !adminId || !supabaseUrl || !supabaseKey) {
     console.error("Missing required environment variable");
@@ -69,12 +70,8 @@ export default async function handler(req, res) {
     });
 
     if (!response.ok) {
-      const details = (await response.text()).slice(0, 1000);
-      console.error(
-        "Supabase request failed:",
-        response.status,
-        details
-      );
+      const details = (await response.text()).slice(0, 500);
+      console.error("Supabase request failed:", response.status, details);
       throw new Error(`Supabase request failed (${response.status})`);
     }
 
@@ -87,7 +84,8 @@ export default async function handler(req, res) {
   async function reply(value) {
     await telegram("sendMessage", {
       chat_id: chatId,
-      text: value
+      text: value,
+      disable_web_page_preview: true
     });
   }
 
@@ -137,36 +135,106 @@ export default async function handler(req, res) {
       {
         method: "PATCH",
         headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({
-          [column]: start.toISOString()
-        })
+        body: JSON.stringify({ [column]: start.toISOString() })
       }
     );
 
     return start;
   }
 
+  async function searchMovies(searchQuery) {
+    if (!tmdbKey) {
+      await reply("Поиск временно недоступен. Попробуй позже.");
+      return;
+    }
+
+    // Consume the same allowance used by the website.
+    const limitResult = await db("rpc/consume_moviebox_search", {
+      method: "POST",
+      body: JSON.stringify({ p_telegram_id: senderId })
+    });
+
+    if (!limitResult || limitResult.allowed !== true) {
+      await reply(
+        "⛔ Лимит поисков исчерпан.\n\n" +
+        `Тариф: ${(limitResult?.tier || "free").toUpperCase()}\n` +
+        `Использовано: ${limitResult?.used ?? 0} из ${limitResult?.limit ?? 5}.`
+      );
+      return;
+    }
+
+    const url = new URL("https://api.themoviedb.org/3/search/movie");
+    url.searchParams.set("api_key", tmdbKey);
+    url.searchParams.set("language", "ru-RU");
+    url.searchParams.set("include_adult", "false");
+    url.searchParams.set("page", "1");
+    url.searchParams.set("query", searchQuery);
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      console.error("TMDB search failed:", response.status);
+      await reply("Не удалось получить фильмы. Попробуй позже.");
+      return;
+    }
+
+    const data = await response.json();
+    const movies = (data.results || []).slice(0, 5);
+
+    if (!movies.length) {
+      await reply(
+        `По запросу «${searchQuery}» ничего не найдено.\n` +
+        "Учти: поисковая попытка уже учтена в лимите."
+      );
+      return;
+    }
+
+    const lines = movies.map((movie, index) => {
+      const year = movie.release_date
+        ? movie.release_date.slice(0, 4)
+        : "год неизвестен";
+
+      const overview = String(movie.overview || "")
+        .replace(/\s+/g, " ")
+        .slice(0, 300);
+
+      const poster = movie.poster_path
+        ? "\nПостер: https://image.tmdb.org/t/p/w500" + movie.poster_path
+        : "";
+
+      return (
+        `${index + 1}. ${movie.title || "Без названия"} (${year})` +
+        (overview ? `\n${overview}` : "") +
+        poster
+      );
+    });
+
+    await reply(
+      `🎬 Результаты: ${searchQuery}\n` +
+      `Тариф: ${(limitResult.tier || "free").toUpperCase()}\n` +
+      `Использовано: ${limitResult.used}/${limitResult.limit}; ` +
+      `осталось ${Math.max(0, limitResult.limit - limitResult.used)}.\n\n` +
+      lines.join("\n\n")
+    );
+  }
+
   try {
-    if (!text) return res.status(200).json({ ok: true });
+    if (!text) {
+      return res.status(200).json({ ok: true });
+    }
 
     if (text === "/link") {
       await getUser();
 
-      // Generate a cryptographically random one-time linking code.
       const code = randomBytes(24).toString("base64url");
-      const codeHash = createHash("sha256")
-        .update(code)
-        .digest("hex");
+      const codeHash = createHash("sha256").update(code).digest("hex");
 
-      // Invalidate previous unused codes for this Telegram account.
       await db(
         `moviebox_link_codes?telegram_id=eq.${encodeURIComponent(senderId)}&used_at=is.null`,
         { method: "DELETE" }
       );
 
-      const expiresAt = new Date(
-        Date.now() + 10 * 60 * 1000
-      ).toISOString();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
       await db("moviebox_link_codes", {
         method: "POST",
@@ -181,57 +249,60 @@ export default async function handler(req, res) {
       await reply(
         "🔐 Код привязки MovieBox:\n\n" +
         code +
-        "\n\nКод действует 10 минут и может быть использован один раз. " +
-        "Не пересылай его другим людям.\n\n" +
-        "Подтверждение привязки на сайте будет доступно после подключения следующего этапа."
+        "\n\nКод действует 10 минут и используется один раз. " +
+        "Введи его в поле привязки на сайте."
       );
+
     } else if (text === "/start") {
       await getUser();
 
       await reply(
         "Добро пожаловать в MovieBox! 🎬\n\n" +
+        "Просто напиши название фильма для поиска.\n\n" +
         "Команды:\n" +
+        "/search название — поиск фильма\n" +
         "/status — статус Premium/VIP\n" +
-        "/link — получить код привязки сайта\n" +
+        "/link — код привязки сайта\n" +
         "/redeem CODE — активировать промокод\n" +
         "/help — помощь\n" +
         "/id — ваш Telegram ID"
       );
+
     } else if (text === "/help") {
       await reply(
         "MovieBox — помощь 🎬\n\n" +
-        "/start — главное меню\n" +
+        "Отправь название фильма обычным сообщением.\n" +
+        "/search Интерстеллар — поиск фильма\n" +
         "/status — статус подписки\n" +
         "/link — код привязки сайта\n" +
         "/redeem CODE — активировать промокод\n" +
         "/id — узнать свой ID"
       );
+
     } else if (text === "/id") {
       await reply(`Ваш Telegram ID: ${senderId}`);
+
     } else if (text === "/status") {
       const user = await getUser();
       const now = new Date();
 
-      const premium =
-        user.premium_until && new Date(user.premium_until) > now;
-      const vip =
-        user.vip_until && new Date(user.vip_until) > now;
+      const premium = user.premium_until && new Date(user.premium_until) > now;
+      const vip = user.vip_until && new Date(user.vip_until) > now;
 
       await reply(
         "Ваш статус MovieBox 🎬\n\n" +
         `Premium: ${
           premium
-            ? "активен до " +
-              new Date(user.premium_until).toLocaleDateString("ru-RU")
+            ? "активен до " + new Date(user.premium_until).toLocaleDateString("ru-RU")
             : "не активен"
         }\n` +
         `VIP: ${
           vip
-            ? "активен до " +
-              new Date(user.vip_until).toLocaleDateString("ru-RU")
+            ? "активен до " + new Date(user.vip_until).toLocaleDateString("ru-RU")
             : "не активен"
         }`
       );
+
     } else if (text.startsWith("/grant ")) {
       if (!isAdmin) {
         await reply("Эта команда доступна только администратору.");
@@ -257,6 +328,7 @@ export default async function handler(req, res) {
           );
         }
       }
+
     } else if (text.startsWith("/promo ")) {
       if (!isAdmin) {
         await reply("Эта команда доступна только администратору.");
@@ -292,6 +364,7 @@ export default async function handler(req, res) {
           await reply(`Промокод ${code} создан.`);
         }
       }
+
     } else if (text.startsWith("/redeem ")) {
       const code = (text.split(/\s+/)[1] || "").toUpperCase();
 
@@ -304,9 +377,7 @@ export default async function handler(req, res) {
         const promo = codes[0];
 
         if (!promo || promo.activations >= promo.max_activations) {
-          await reply(
-            "Промокод не найден, отключён или лимит активаций исчерпан."
-          );
+          await reply("Промокод не найден, отключён или лимит активаций исчерпан.");
         } else {
           const previous = await db(
             `moviebox_promo_redemptions?code=eq.${encodeURIComponent(code)}&telegram_id=eq.${encodeURIComponent(senderId)}&select=id`
@@ -315,11 +386,7 @@ export default async function handler(req, res) {
           if (previous.length) {
             await reply("Ты уже активировал этот промокод.");
           } else {
-            await grant(
-              senderId,
-              promo.tier,
-              Number(promo.duration_days)
-            );
+            await grant(senderId, promo.tier, Number(promo.duration_days));
 
             await db("moviebox_promo_redemptions", {
               method: "POST",
@@ -348,6 +415,7 @@ export default async function handler(req, res) {
           }
         }
       }
+
     } else if (text === "/admin") {
       await reply(
         isAdmin
@@ -356,18 +424,35 @@ export default async function handler(req, res) {
             "/promo CODE premium 7 10"
           : "Эта команда доступна только администратору."
       );
+
     } else {
-      await reply("Напиши /start, чтобы открыть меню MovieBox.");
+      const searchQuery = text.startsWith("/search")
+        ? text.replace(/^\/search(?:@\w+)?\s*/i, "").trim()
+        : text.startsWith("/")
+          ? ""
+          : text;
+
+      if (!searchQuery) {
+        await reply(
+          "🎬 Напиши название фильма обычным сообщением.\n" +
+          "Например: Интерстеллар\n" +
+          "Или используй /search Интерстеллар"
+        );
+      } else if (searchQuery.length > 100) {
+        await reply("Название слишком длинное. Максимум 100 символов.");
+      } else {
+        await getUser();
+        await searchMovies(searchQuery);
+      }
     }
 
     return res.status(200).json({ ok: true });
+
   } catch (error) {
     console.error("MovieBox bot error:", error.message);
 
     try {
-      await reply(
-        "Не удалось выполнить команду. Проверь настройки базы данных или попробуй позже."
-      );
+      await reply("Не удалось выполнить команду. Попробуй позже.");
     } catch {
       console.error("Telegram error while sending failure reply");
     }
