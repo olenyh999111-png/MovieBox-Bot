@@ -2,9 +2,11 @@
 import { createHash } from "node:crypto";
 
 export default async function handler(req, res) {
-  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("Vary", "Cookie");
 
   if (req.method !== "GET") {
+    res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });
   }
 
@@ -15,15 +17,19 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Слишком длинный запрос" });
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/+$/, "");
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const tmdbKey = process.env.TMDB_API_KEY;
-
-  if (!supabaseUrl || !supabaseKey || !tmdbKey) {
+  if (!tmdbKey) {
     return res.status(500).json({ error: "Server configuration error" });
   }
 
+  const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/+$/, "");
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
   async function db(path, options = {}) {
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error("Supabase configuration is missing");
+    }
+
     const headers = new Headers(options.headers || {});
     headers.set("apikey", supabaseKey);
     headers.set("Content-Type", "application/json");
@@ -55,15 +61,56 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Read the session token from the HttpOnly cookie.
+    // No query means the homepage's popular collection.
+    // Loading it must not consume a search.
+    const url = new URL(
+      query
+        ? "https://api.themoviedb.org/3/search/movie"
+        : "https://api.themoviedb.org/3/movie/popular"
+    );
+
+    url.searchParams.set("api_key", tmdbKey);
+    url.searchParams.set("language", language);
+    url.searchParams.set("include_adult", "false");
+    url.searchParams.set("page", "1");
+
+    if (!query) {
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        console.error("TMDB popular endpoint status:", response.status);
+        return res.status(502).json({
+          error: "Не удалось загрузить популярные фильмы"
+        });
+      }
+
+      const data = await response.json();
+
+      return res.status(200).json({
+        results: (data.results || []).map(movie => ({
+          id: movie.id,
+          title: movie.title,
+          original_title: movie.original_title,
+          year: movie.release_date
+            ? movie.release_date.slice(0, 4)
+            : null,
+          overview: movie.overview,
+          poster: movie.poster_path
+            ? "https://image.tmdb.org/t/p/w500" + movie.poster_path
+            : null
+        }))
+      });
+    }
+
+    // A real search requires a valid Telegram-linked session.
     const cookieHeader = req.headers.cookie || "";
-    const cookie = cookieHeader
+    const sessionCookie = cookieHeader
       .split(";")
       .map(part => part.trim())
       .find(part => part.startsWith("moviebox_session="));
 
-    const sessionToken = cookie
-      ? cookie.slice("moviebox_session=".length)
+    const sessionToken = sessionCookie
+      ? sessionCookie.slice("moviebox_session=".length)
       : "";
 
     if (!/^[A-Za-z0-9_-]{40,100}$/.test(sessionToken)) {
@@ -88,13 +135,13 @@ export default async function handler(req, res) {
 
     if (!sessions?.length || !sessions[0].telegram_id) {
       return res.status(401).json({
-        error: "Сессия истекла. Выполни команду /link в Telegram ещё раз."
+        error: "Сессия истекла. Отправь /link боту и подключи аккаунт снова."
       });
     }
 
     const telegramId = String(sessions[0].telegram_id);
 
-    // Atomically check and consume one search from the user's allowance.
+    // Consume exactly one search through the database function.
     const limitResult = await db("rpc/consume_moviebox_search", {
       method: "POST",
       body: JSON.stringify({ p_telegram_id: telegramId })
@@ -105,29 +152,17 @@ export default async function handler(req, res) {
         error: "Лимит поисков исчерпан.",
         tier: limitResult?.tier || "free",
         limit: limitResult?.limit ?? 5,
-        used: limitResult?.used ?? 0
+        used: limitResult?.used ?? 0,
+        remaining: 0
       });
     }
 
-    const url = new URL(
-      query
-        ? "https://api.themoviedb.org/3/search/movie"
-        : "https://api.themoviedb.org/3/movie/popular"
-    );
-
-    url.searchParams.set("api_key", tmdbKey);
-    url.searchParams.set("language", language);
-    url.searchParams.set("include_adult", "false");
-    url.searchParams.set("page", "1");
-
-    if (query) {
-      url.searchParams.set("query", query);
-    }
+    url.searchParams.set("query", query);
 
     const response = await fetch(url);
 
     if (!response.ok) {
-      console.error("TMDB returned status:", response.status);
+      console.error("TMDB search endpoint status:", response.status);
       return res.status(502).json({
         error: "Не удалось получить фильмы из TMDB"
       });
