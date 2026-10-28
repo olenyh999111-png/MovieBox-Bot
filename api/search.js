@@ -10,20 +10,30 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const query = String(req.query.q || "").trim();
-  const language = req.query.language === "uk-UA" ? "uk-UA" : "ru-RU";
+  // Поддерживаем оба варианта параметра, чтобы не ломать
+  // существующие вызовы сайта и Telegram Mini App.
+  const query = String(req.query.q || req.query.query || "").trim();
+  const language =
+    req.query.language === "uk-UA" ? "uk-UA" : "ru-RU";
 
   if (query.length > 100) {
-    return res.status(400).json({ error: "Слишком длинный запрос" });
+    return res.status(400).json({
+      error: "Слишком длинный запрос"
+    });
   }
 
   const tmdbKey = process.env.TMDB_API_KEY;
+
   if (!tmdbKey) {
-    return res.status(500).json({ error: "Server configuration error" });
+    return res.status(500).json({
+      error: "Server configuration error"
+    });
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/+$/, "");
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl =
+    process.env.SUPABASE_URL?.replace(/\/+$/, "");
+  const supabaseKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   async function db(path, options = {}) {
     if (!supabaseUrl || !supabaseKey) {
@@ -40,10 +50,13 @@ export default async function handler(req, res) {
       headers.set("Authorization", `Bearer ${supabaseKey}`);
     }
 
-    const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
-      ...options,
-      headers
-    });
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/${path}`,
+      {
+        ...options,
+        headers
+      }
+    );
 
     if (!response.ok) {
       console.error(
@@ -54,15 +67,33 @@ export default async function handler(req, res) {
       throw new Error("Database request failed");
     }
 
-    if (response.status === 204) return null;
+    if (response.status === 204) {
+      return null;
+    }
 
     const body = await response.text();
     return body ? JSON.parse(body) : null;
   }
 
+  function formatMovies(movies) {
+    return (movies || []).map(movie => ({
+      id: movie.id,
+      title: movie.title,
+      original_title: movie.original_title,
+      year: movie.release_date
+        ? movie.release_date.slice(0, 4)
+        : null,
+      overview: movie.overview || "",
+      poster: movie.poster_path
+        ? "https://image.tmdb.org/t/p/w500" +
+          movie.poster_path
+        : null
+    }));
+  }
+
   try {
-    // No query means the homepage's popular collection.
-    // Loading it must not consume a search.
+    // Без поискового запроса показываем популярные фильмы.
+    // Просмотр каталога не расходует лимит поисков.
     const url = new URL(
       query
         ? "https://api.themoviedb.org/3/search/movie"
@@ -78,7 +109,10 @@ export default async function handler(req, res) {
       const response = await fetch(url);
 
       if (!response.ok) {
-        console.error("TMDB popular endpoint status:", response.status);
+        console.error(
+          "TMDB popular endpoint status:",
+          response.status
+        );
         return res.status(502).json({
           error: "Не удалось загрузить популярные фильмы"
         });
@@ -87,27 +121,18 @@ export default async function handler(req, res) {
       const data = await response.json();
 
       return res.status(200).json({
-        results: (data.results || []).map(movie => ({
-          id: movie.id,
-          title: movie.title,
-          original_title: movie.original_title,
-          year: movie.release_date
-            ? movie.release_date.slice(0, 4)
-            : null,
-          overview: movie.overview,
-          poster: movie.poster_path
-            ? "https://image.tmdb.org/t/p/w500" + movie.poster_path
-            : null
-        }))
+        results: formatMovies(data.results)
       });
     }
 
-    // A real search requires a valid Telegram-linked session.
+    // Для поиска требуется действующая Telegram-сессия.
     const cookieHeader = req.headers.cookie || "";
     const sessionCookie = cookieHeader
       .split(";")
       .map(part => part.trim())
-      .find(part => part.startsWith("moviebox_session="));
+      .find(part =>
+        part.startsWith("moviebox_session=")
+      );
 
     const sessionToken = sessionCookie
       ? sessionCookie.slice("moviebox_session=".length)
@@ -115,7 +140,8 @@ export default async function handler(req, res) {
 
     if (!/^[A-Za-z0-9_-]{40,100}$/.test(sessionToken)) {
       return res.status(401).json({
-        error: "Сначала подключи Telegram через команду /link."
+        error:
+          "Сначала подключи Telegram через команду /link."
       });
     }
 
@@ -135,17 +161,23 @@ export default async function handler(req, res) {
 
     if (!sessions?.length || !sessions[0].telegram_id) {
       return res.status(401).json({
-        error: "Сессия истекла. Отправь /link боту и подключи аккаунт снова."
+        error:
+          "Сессия истекла. Отправь /link боту и подключи аккаунт снова."
       });
     }
 
     const telegramId = String(sessions[0].telegram_id);
 
-    // Consume exactly one search through the database function.
-    const limitResult = await db("rpc/consume_moviebox_search", {
-      method: "POST",
-      body: JSON.stringify({ p_telegram_id: telegramId })
-    });
+    // Используем общие лимиты сайта и Telegram-бота.
+    const limitResult = await db(
+      "rpc/consume_moviebox_search",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          p_telegram_id: telegramId
+        })
+      }
+    );
 
     if (!limitResult || limitResult.allowed !== true) {
       return res.status(429).json({
@@ -162,7 +194,10 @@ export default async function handler(req, res) {
     const response = await fetch(url);
 
     if (!response.ok) {
-      console.error("TMDB search endpoint status:", response.status);
+      console.error(
+        "TMDB search endpoint status:",
+        response.status
+      );
       return res.status(502).json({
         error: "Не удалось получить фильмы из TMDB"
       });
@@ -174,22 +209,15 @@ export default async function handler(req, res) {
       tier: limitResult.tier,
       limit: limitResult.limit,
       used: limitResult.used,
-      remaining: Math.max(0, limitResult.limit - limitResult.used),
-      results: (data.results || []).map(movie => ({
-        id: movie.id,
-        title: movie.title,
-        original_title: movie.original_title,
-        year: movie.release_date
-          ? movie.release_date.slice(0, 4)
-          : null,
-        overview: movie.overview,
-        poster: movie.poster_path
-          ? "https://image.tmdb.org/t/p/w500" + movie.poster_path
-          : null
-      }))
+      remaining: Math.max(
+        0,
+        limitResult.limit - limitResult.used
+      ),
+      results: formatMovies(data.results)
     });
   } catch (error) {
     console.error("Search API error:", error.message);
+
     return res.status(500).json({
       error: "Ошибка поиска фильмов"
     });
