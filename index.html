@@ -147,18 +147,18 @@ footer{text-align:center;color:#778198;font-size:12px;padding:24px 5px}
       </article>
       <article class="plan featured">
         <div class="plan-top"><h3>Premium</h3><span class="plan-tag">ПОПУЛЯРНЫЙ</span></div>
-        <div class="plan-price">Цена уточняется</div><div class="plan-cycle">100 поисков в день</div>
+        <div class="plan-price" id="premiumPrice">425 ⭐</div><div class="plan-cycle" id="premiumCycle">30 дней · 100 поисков в день</div>
         <ul><li>Больше поисков каждый день</li><li>Доступ к поиску фильмов</li><li>Архив на этом устройстве</li></ul>
-        <button type="button" onclick="askAboutPlan('Premium')">Узнать о Premium</button>
+        <button type="button" id="buyPremiumButton" onclick="askAboutPlan('premium')">Купить Premium · 425 ⭐</button>
       </article>
       <article class="plan vip">
         <div class="plan-top"><h3>VIP</h3><span class="plan-tag">МАКСИМУМ</span></div>
-        <div class="plan-price">Цена уточняется</div><div class="plan-cycle">250 поисков в день</div>
+        <div class="plan-price" id="vipPrice">1275 ⭐</div><div class="plan-cycle" id="vipCycle">30 дней · 250 поисков в день</div>
         <ul><li>Самый высокий лимит</li><li>Доступ к поиску фильмов</li><li>Архив на этом устройстве</li></ul>
-        <button type="button" onclick="askAboutPlan('VIP')">Узнать о VIP</button>
+        <button type="button" id="buyVipButton" onclick="askAboutPlan('vip')">Купить VIP · 1275 ⭐</button>
       </article>
     </div>
-    <div class="notice" id="planStatus" role="status" aria-live="polite"><b>Важно:</b> точные цены и автоматическая оплата не настроены в интерфейсе. Кнопки тарифов открывают бота для уточнения стоимости и условий.</div>
+    <div class="notice" id="planStatus" role="status" aria-live="polite"><b>Оплата подключается.</b> Цены: Premium — 425 ⭐ за 30 дней, VIP — 1275 ⭐ за 30 дней. Покупка временно отключена до настройки серверного подтверждения платежей, чтобы не потерять оплату.</div>
     <section class="panel">
       <h2 style="margin-top:0">Есть промокод?</h2>
       <p>Отправь боту команду <b>/redeem КОД</b>, заменив «КОД» своим промокодом. Если он активен, бот применит его к аккаунту.</p>
@@ -399,13 +399,120 @@ function openBot() {
   if (tg?.openTelegramLink) tg.openTelegramLink(botUrl);
   else window.location.href = botUrl;
 }
-function askAboutPlan(plan) {
+
+// Подключение реальных покупок включим только после настройки webhook,
+// который проверяет successful_payment и активирует тариф в Supabase.
+const MOVIEBOX_PAYMENTS_ENABLED = false;
+
+async function loadPricing() {
   const status = document.getElementById("planStatus");
-  if (status) {
-    status.textContent = `Вы выбрали ${plan}. Актуальную цену, способы оплаты и активацию тарифа уточни у @MovieBoxFinderBot. Покупка с этой страницы пока автоматически не выполняется.`;
+  try {
+    const response = await fetch(apiBase + "/api/pricing", {
+      method: "GET",
+      cache: "no-store",
+      headers: { "Accept": "application/json" }
+    });
+    const data = await response.json();
+    if (!response.ok || !data?.ok || !data.premium || !data.vip) {
+      throw new Error("Pricing API returned invalid data");
+    }
+
+    const premiumPrice = Number(data.premium.amountStars);
+    const vipPrice = Number(data.vip.amountStars);
+    const premiumDays = Number(data.premium.durationDays);
+    const vipDays = Number(data.vip.durationDays);
+
+    if (![premiumPrice, vipPrice, premiumDays, vipDays].every(value => Number.isSafeInteger(value) && value > 0)) {
+      throw new Error("Invalid pricing values");
+    }
+
+    document.getElementById("premiumPrice").textContent = premiumPrice + " ⭐";
+    document.getElementById("premiumCycle").textContent = premiumDays + " дней · 100 поисков в день";
+    document.getElementById("vipPrice").textContent = vipPrice + " ⭐";
+    document.getElementById("vipCycle").textContent = vipDays + " дней · 250 поисков в день";
+    document.getElementById("buyPremiumButton").textContent = "Купить Premium · " + premiumPrice + " ⭐";
+    document.getElementById("buyVipButton").textContent = "Купить VIP · " + vipPrice + " ⭐";
+  } catch (error) {
+    console.error("MovieBox pricing load error:", error);
+    if (status) {
+      status.textContent = "Не удалось загрузить цены с сервера. Не оплачивай тариф до восстановления связи.";
+    }
   }
-  openBot();
 }
+
+async function askAboutPlan(plan) {
+  const status = document.getElementById("planStatus");
+  const buttons = [
+    document.getElementById("buyPremiumButton"),
+    document.getElementById("buyVipButton")
+  ].filter(Boolean);
+  const planKey = String(plan).toLowerCase();
+
+  const showStatus = message => {
+    if (status) status.textContent = message;
+  };
+
+  if (planKey !== "premium" && planKey !== "vip") {
+    showStatus("Неизвестный тариф.");
+    return;
+  }
+
+  // Пока обработчик успешного платежа не готов, оплата отключена.
+  if (!MOVIEBOX_PAYMENTS_ENABLED) {
+    showStatus("Оплата временно отключена до завершения настройки серверного подтверждения и активации подписки. Пожалуйста, пока не оплачивай. Premium — 425 ⭐, VIP — 1275 ⭐ за 30 дней.");
+    return;
+  }
+
+  if (!tg || !tg.initData) {
+    showStatus("Для покупки открой MovieBox внутри Telegram через @MovieBoxFinderBot.");
+    return;
+  }
+
+  buttons.forEach(button => { button.disabled = true; });
+  showStatus("Создаём защищённый счёт Telegram Stars…");
+
+  try {
+    const response = await fetch(apiBase + "/api/create-invoice", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Telegram-Init-Data": tg.initData
+      },
+      body: JSON.stringify({ plan: planKey })
+    });
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data || !data.ok || !data.invoiceUrl) {
+      throw new Error(data?.error || "Не удалось создать счёт. Попробуй позже.");
+    }
+
+    showStatus("Счёт создан на " + data.amountStars + " ⭐. Открываем окно оплаты…");
+
+    if (typeof tg.openInvoice !== "function") {
+      showStatus("Счёт создан, но встроенное окно оплаты недоступно в этой версии Telegram. Обнови Telegram и попробуй снова.");
+      return;
+    }
+
+    tg.openInvoice(data.invoiceUrl, paymentStatus => {
+      if (paymentStatus === "paid") {
+        showStatus("Telegram сообщил об оплате. Ждём серверного подтверждения и активации подписки.");
+      } else if (paymentStatus === "cancelled") {
+        showStatus("Оплата отменена. Тариф не изменён.");
+      } else if (paymentStatus === "failed") {
+        showStatus("Оплата не прошла. Попробуй ещё раз.");
+      } else if (paymentStatus === "pending") {
+        showStatus("Платёж обрабатывается. Подожди подтверждения сервера.");
+      }
+    });
+  } catch (error) {
+    console.error("MovieBox purchase error:", error);
+    showStatus(error.message || "Не удалось открыть оплату. Попробуй позже.");
+  } finally {
+    buttons.forEach(button => { button.disabled = false; });
+  }
+}
+
 function shareApp() {
   if (tg?.switchInlineQuery) tg.switchInlineQuery("MovieBox — кинотека", []);
   else if (navigator.share) navigator.share({title:"MovieBox",text:"Открой MovieBox в Telegram",url:location.href}).catch(() => {});
@@ -415,6 +522,7 @@ function shareApp() {
 
 restoreUsage();
 renderArchive();
+loadPricing();
 renderMovies();
 </script>
 </body>
