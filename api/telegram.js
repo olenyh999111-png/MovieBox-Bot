@@ -1,4 +1,6 @@
 
+import { randomBytes, createHash } from "node:crypto";
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -22,9 +24,11 @@ export default async function handler(req, res) {
   const message = req.body?.message;
   const chatId = message?.chat?.id;
 
-  if (!chatId) return res.status(200).json({ ok: true });
+  if (!chatId || !message.from?.id) {
+    return res.status(200).json({ ok: true });
+  }
 
-  const senderId = String(message.from?.id || "");
+  const senderId = String(message.from.id);
   const text = (message.text || "").trim();
   const isAdmin = senderId === String(adminId);
 
@@ -53,21 +57,16 @@ export default async function handler(req, res) {
     headers.set("apikey", supabaseKey);
     headers.set("Content-Type", "application/json");
 
-    // New sb_secret_ keys are API keys, not JWTs.
-    // Only legacy service_role keys belong in Authorization: Bearer.
     if (supabaseKey.startsWith("sb_secret_")) {
       headers.delete("Authorization");
     } else {
       headers.set("Authorization", `Bearer ${supabaseKey}`);
     }
 
-    const response = await fetch(
-      `${supabaseUrl}/rest/v1/${path}`,
-      {
-        ...options,
-        headers
-      }
-    );
+    const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
+      ...options,
+      headers
+    });
 
     if (!response.ok) {
       const details = (await response.text()).slice(0, 1000);
@@ -104,7 +103,8 @@ export default async function handler(req, res) {
       headers: { Prefer: "return=representation" },
       body: JSON.stringify({
         telegram_id: telegramId,
-        free_searches_used: 0
+        free_searches_used: 0,
+        daily_searches_used: 0
       })
     });
 
@@ -149,12 +149,50 @@ export default async function handler(req, res) {
   try {
     if (!text) return res.status(200).json({ ok: true });
 
-    if (text === "/start") {
+    if (text === "/link") {
       await getUser();
+
+      // Generate a cryptographically random one-time linking code.
+      const code = randomBytes(24).toString("base64url");
+      const codeHash = createHash("sha256")
+        .update(code)
+        .digest("hex");
+
+      // Invalidate previous unused codes for this Telegram account.
+      await db(
+        `moviebox_link_codes?telegram_id=eq.${encodeURIComponent(senderId)}&used_at=is.null`,
+        { method: "DELETE" }
+      );
+
+      const expiresAt = new Date(
+        Date.now() + 10 * 60 * 1000
+      ).toISOString();
+
+      await db("moviebox_link_codes", {
+        method: "POST",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({
+          telegram_id: senderId,
+          code_hash: codeHash,
+          expires_at: expiresAt
+        })
+      });
+
+      await reply(
+        "🔐 Код привязки MovieBox:\n\n" +
+        code +
+        "\n\nКод действует 10 минут и может быть использован один раз. " +
+        "Не пересылай его другим людям.\n\n" +
+        "Подтверждение привязки на сайте будет доступно после подключения следующего этапа."
+      );
+    } else if (text === "/start") {
+      await getUser();
+
       await reply(
         "Добро пожаловать в MovieBox! 🎬\n\n" +
         "Команды:\n" +
         "/status — статус Premium/VIP\n" +
+        "/link — получить код привязки сайта\n" +
         "/redeem CODE — активировать промокод\n" +
         "/help — помощь\n" +
         "/id — ваш Telegram ID"
@@ -164,6 +202,7 @@ export default async function handler(req, res) {
         "MovieBox — помощь 🎬\n\n" +
         "/start — главное меню\n" +
         "/status — статус подписки\n" +
+        "/link — код привязки сайта\n" +
         "/redeem CODE — активировать промокод\n" +
         "/id — узнать свой ID"
       );
@@ -182,12 +221,14 @@ export default async function handler(req, res) {
         "Ваш статус MovieBox 🎬\n\n" +
         `Premium: ${
           premium
-            ? "активен до " + new Date(user.premium_until).toLocaleDateString("ru-RU")
+            ? "активен до " +
+              new Date(user.premium_until).toLocaleDateString("ru-RU")
             : "не активен"
         }\n` +
         `VIP: ${
           vip
-            ? "активен до " + new Date(user.vip_until).toLocaleDateString("ru-RU")
+            ? "активен до " +
+              new Date(user.vip_until).toLocaleDateString("ru-RU")
             : "не активен"
         }`
       );
@@ -263,7 +304,9 @@ export default async function handler(req, res) {
         const promo = codes[0];
 
         if (!promo || promo.activations >= promo.max_activations) {
-          await reply("Промокод не найден, отключён или лимит активаций исчерпан.");
+          await reply(
+            "Промокод не найден, отключён или лимит активаций исчерпан."
+          );
         } else {
           const previous = await db(
             `moviebox_promo_redemptions?code=eq.${encodeURIComponent(code)}&telegram_id=eq.${encodeURIComponent(senderId)}&select=id`
@@ -272,7 +315,11 @@ export default async function handler(req, res) {
           if (previous.length) {
             await reply("Ты уже активировал этот промокод.");
           } else {
-            await grant(senderId, promo.tier, Number(promo.duration_days));
+            await grant(
+              senderId,
+              promo.tier,
+              Number(promo.duration_days)
+            );
 
             await db("moviebox_promo_redemptions", {
               method: "POST",
@@ -304,7 +351,9 @@ export default async function handler(req, res) {
     } else if (text === "/admin") {
       await reply(
         isAdmin
-          ? "Команды администратора:\n/grant TELEGRAM_ID premium 30\n/promo CODE premium 7 10"
+          ? "Команды администратора:\n" +
+            "/grant TELEGRAM_ID premium 30\n" +
+            "/promo CODE premium 7 10"
           : "Эта команда доступна только администратору."
       );
     } else {
@@ -319,7 +368,7 @@ export default async function handler(req, res) {
       await reply(
         "Не удалось выполнить команду. Проверь настройки базы данных или попробуй позже."
       );
-    } catch (replyError) {
+    } catch {
       console.error("Telegram error while sending failure reply");
     }
 
