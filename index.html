@@ -158,7 +158,7 @@ footer{text-align:center;color:#778198;font-size:12px;padding:24px 5px}
         <button type="button" id="buyVipButton" onclick="askAboutPlan('vip')">Купить VIP · 1275 ⭐</button>
       </article>
     </div>
-    <div class="notice" id="planStatus" role="status" aria-live="polite"><b>Оплата подключается.</b> Цены: Premium — 425 ⭐ за 30 дней, VIP — 1275 ⭐ за 30 дней. Покупка временно отключена до настройки серверного подтверждения платежей, чтобы не потерять оплату.</div>
+    <div class="notice" id="planStatus" role="status" aria-live="polite"><b>Оплата через Telegram Stars.</b> Premium — 425 ⭐ за 30 дней (100 поисков в день), VIP — 1275 ⭐ за 30 дней (250 поисков в день). Подписка активируется сервером только после подтверждения успешного платежа.</div>
     <section class="panel">
       <h2 style="margin-top:0">Есть промокод?</h2>
       <p>Отправь боту команду <b>/redeem КОД</b>, заменив «КОД» своим промокодом. Если он активен, бот применит его к аккаунту.</p>
@@ -400,9 +400,7 @@ function openBot() {
   else window.location.href = botUrl;
 }
 
-// Подключение реальных покупок включим только после настройки webhook,
-// который проверяет successful_payment и активирует тариф в Supabase.
-const MOVIEBOX_PAYMENTS_ENABLED = false;
+const MOVIEBOX_PAYMENTS_ENABLED = true;
 
 async function loadPricing() {
   const status = document.getElementById("planStatus");
@@ -432,6 +430,9 @@ async function loadPricing() {
     document.getElementById("vipCycle").textContent = vipDays + " дней · 250 поисков в день";
     document.getElementById("buyPremiumButton").textContent = "Купить Premium · " + premiumPrice + " ⭐";
     document.getElementById("buyVipButton").textContent = "Купить VIP · " + vipPrice + " ⭐";
+    if (status) {
+      status.textContent = "Оплата через Telegram Stars. Premium — " + premiumPrice + " ⭐ за " + premiumDays + " дней; VIP — " + vipPrice + " ⭐ за " + vipDays + " дней. Доступ активируется сервером после подтверждения платежа.";
+    }
   } catch (error) {
     console.error("MovieBox pricing load error:", error);
     if (status) {
@@ -457,9 +458,8 @@ async function askAboutPlan(plan) {
     return;
   }
 
-  // Пока обработчик успешного платежа не готов, оплата отключена.
   if (!MOVIEBOX_PAYMENTS_ENABLED) {
-    showStatus("Оплата временно отключена до завершения настройки серверного подтверждения и активации подписки. Пожалуйста, пока не оплачивай. Premium — 425 ⭐, VIP — 1275 ⭐ за 30 дней.");
+    showStatus("Оплата пока отключена. Пожалуйста, не оплачивай повторно.");
     return;
   }
 
