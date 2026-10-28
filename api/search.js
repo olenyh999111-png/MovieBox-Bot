@@ -1,67 +1,145 @@
+
+import { createHash } from "node:crypto";
+
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Cache-Control", "no-store");
 
   if (req.method !== "GET") {
-    return res.status(405).json({
-      error: "Method not allowed"
-    });
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
   const query = String(req.query.q || "").trim();
-  const language = req.query.language === "uk-UA"
-    ? "uk-UA"
-    : "ru-RU";
-
-  
+  const language = req.query.language === "uk-UA" ? "uk-UA" : "ru-RU";
 
   if (query.length > 100) {
-    return res.status(400).json({
-      error: "Слишком длинный запрос"
-    });
+    return res.status(400).json({ error: "Слишком длинный запрос" });
   }
 
-  const apiKey = process.env.TMDB_API_KEY;
+  const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/+$/, "");
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const tmdbKey = process.env.TMDB_API_KEY;
 
-  if (!apiKey) {
-    return res.status(500).json({
-      error: "TMDB API key is not configured"
+  if (!supabaseUrl || !supabaseKey || !tmdbKey) {
+    return res.status(500).json({ error: "Server configuration error" });
+  }
+
+  async function db(path, options = {}) {
+    const headers = new Headers(options.headers || {});
+    headers.set("apikey", supabaseKey);
+    headers.set("Content-Type", "application/json");
+
+    if (supabaseKey.startsWith("sb_secret_")) {
+      headers.delete("Authorization");
+    } else {
+      headers.set("Authorization", `Bearer ${supabaseKey}`);
+    }
+
+    const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
+      ...options,
+      headers
     });
+
+    if (!response.ok) {
+      console.error(
+        "Search database error:",
+        response.status,
+        (await response.text()).slice(0, 300)
+      );
+      throw new Error("Database request failed");
+    }
+
+    if (response.status === 204) return null;
+
+    const body = await response.text();
+    return body ? JSON.parse(body) : null;
   }
 
   try {
-   
-const url = new URL(
-  query
-    ? "https://api.themoviedb.org/3/search/movie"
-    : "https://api.themoviedb.org/3/movie/popular"
-);
+    // Read the session token from the HttpOnly cookie.
+    const cookieHeader = req.headers.cookie || "";
+    const cookie = cookieHeader
+      .split(";")
+      .map(part => part.trim())
+      .find(part => part.startsWith("moviebox_session="));
 
-url.searchParams.set("api_key", apiKey);
-url.searchParams.set("language", language);
-url.searchParams.set("include_adult", "false");
-url.searchParams.set("page", "1");
+    const sessionToken = cookie
+      ? cookie.slice("moviebox_session=".length)
+      : "";
 
-if (query) {
-  url.searchParams.set("query", query);
-}
+    if (!/^[A-Za-z0-9_-]{40,100}$/.test(sessionToken)) {
+      return res.status(401).json({
+        error: "Сначала подключи Telegram через команду /link."
+      });
+    }
 
+    const tokenHash = createHash("sha256")
+      .update(sessionToken)
+      .digest("hex");
+
+    const now = new Date().toISOString();
+
+    const sessions = await db(
+      "moviebox_web_sessions" +
+      `?token_hash=eq.${tokenHash}` +
+      "&revoked_at=is.null" +
+      `&expires_at=gt.${encodeURIComponent(now)}` +
+      "&select=telegram_id&limit=1"
+    );
+
+    if (!sessions?.length || !sessions[0].telegram_id) {
+      return res.status(401).json({
+        error: "Сессия истекла. Выполни команду /link в Telegram ещё раз."
+      });
+    }
+
+    const telegramId = String(sessions[0].telegram_id);
+
+    // Atomically check and consume one search from the user's allowance.
+    const limitResult = await db("rpc/consume_moviebox_search", {
+      method: "POST",
+      body: JSON.stringify({ p_telegram_id: telegramId })
+    });
+
+    if (!limitResult || limitResult.allowed !== true) {
+      return res.status(429).json({
+        error: "Лимит поисков исчерпан.",
+        tier: limitResult?.tier || "free",
+        limit: limitResult?.limit ?? 5,
+        used: limitResult?.used ?? 0
+      });
+    }
+
+    const url = new URL(
+      query
+        ? "https://api.themoviedb.org/3/search/movie"
+        : "https://api.themoviedb.org/3/movie/popular"
+    );
+
+    url.searchParams.set("api_key", tmdbKey);
+    url.searchParams.set("language", language);
+    url.searchParams.set("include_adult", "false");
+    url.searchParams.set("page", "1");
+
+    if (query) {
+      url.searchParams.set("query", query);
+    }
 
     const response = await fetch(url);
 
-   
-if (!response.ok) {
-  const details = await response.text();
-
-  return res.status(502).json({
-    error: "Не удалось получить фильмы из TMDB",
-    details: details
-  });
-}
-
+    if (!response.ok) {
+      console.error("TMDB returned status:", response.status);
+      return res.status(502).json({
+        error: "Не удалось получить фильмы из TMDB"
+      });
+    }
 
     const data = await response.json();
 
     return res.status(200).json({
+      tier: limitResult.tier,
+      limit: limitResult.limit,
+      used: limitResult.used,
+      remaining: Math.max(0, limitResult.limit - limitResult.used),
       results: (data.results || []).map(movie => ({
         id: movie.id,
         title: movie.title,
@@ -71,12 +149,12 @@ if (!response.ok) {
           : null,
         overview: movie.overview,
         poster: movie.poster_path
-          ? "https://image.tmdb.org/t/p/w500" +
-            movie.poster_path
+          ? "https://image.tmdb.org/t/p/w500" + movie.poster_path
           : null
       }))
     });
-  } catch {
+  } catch (error) {
+    console.error("Search API error:", error.message);
     return res.status(500).json({
       error: "Ошибка поиска фильмов"
     });
